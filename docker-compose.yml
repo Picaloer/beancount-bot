@@ -1,0 +1,121 @@
+services:
+
+  # ── Infrastructure ─────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: beancount_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ── One-off: run migrations ────────────────────────────────────────────────
+
+  migrate:
+    build:
+      context: ./backend
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/beancount_bot
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-claude}
+      LLM_MODEL: ${LLM_MODEL:-claude-haiku-4-5-20251001}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Application ───────────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/beancount_bot
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-claude}
+      LLM_MODEL: ${LLM_MODEL:-claude-haiku-4-5-20251001}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEBUG: "false"
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - app.infrastructure.queue.celery_app
+      - worker
+      - -l
+      - info
+      - -Q
+      - imports
+      - --concurrency
+      - "2"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/beancount_bot
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-claude}
+      LLM_MODEL: ${LLM_MODEL:-claude-haiku-4-5-20251001}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:
