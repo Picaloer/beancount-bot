@@ -52,26 +52,7 @@ def submit_import(db: Session, file_content: bytes, file_name: str, user_id: str
 
 
 def get_import_status(db: Session, import_id: str, user_id: str) -> dict | None:
-    from sqlalchemy import select
-    from app.infrastructure.persistence.models.orm_models import BillImportORM
-
-    imp = db.scalar(
-        select(BillImportORM).where(
-            BillImportORM.id == import_id,
-            BillImportORM.user_id == user_id,
-        )
-    )
-    if not imp:
-        return None
-    return {
-        "import_id": imp.id,
-        "source": imp.source,
-        "file_name": imp.file_name,
-        "status": imp.status,
-        "row_count": imp.row_count,
-        "error_message": imp.error_message,
-        "imported_at": imp.imported_at.isoformat(),
-    }
+    return repo.get_import_detail(db, import_id, user_id)
 
 
 

@@ -1,5 +1,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
+export type ImportLifecycleStatus = "pending" | "processing" | "classifying" | "done" | "failed";
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -25,12 +27,28 @@ export function getImportStatus(importId: string) {
   return request<ImportStatus>(`/bills/import/${importId}`);
 }
 
+export function getImportDetail(importId: string) {
+  return request<ImportDetail>(`/bills/import/${importId}/detail`);
+}
+
 export function listImports() {
   return request<ImportRecord[]>("/bills/imports");
 }
 
 export function deleteImport(importId: string) {
   return request<DeleteImportResult>(`/bills/import/${importId}`, { method: "DELETE" });
+}
+
+// Settings
+export function getRuntimeSettings() {
+  return request<RuntimeSettings>("/settings/runtime");
+}
+
+export function updateRuntimeSettings(payload: RuntimeSettingsUpdateInput) {
+  return request<RuntimeSettingsUpdateResult>("/settings/runtime", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 // Transactions
@@ -132,10 +150,44 @@ export interface ImportStatus {
   import_id: string;
   source: string;
   file_name: string;
-  status: "pending" | "processing" | "classifying" | "done" | "failed";
+  status: ImportLifecycleStatus;
   row_count: number;
-  error_message?: string;
+  total_rows: number;
+  processed_rows: number;
+  llm_total_batches: number;
+  llm_completed_batches: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  stage_message: string | null;
+  error_message?: string | null;
   imported_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface ImportStage {
+  stage_key: "parse" | "dedupe" | "classify" | "beancount" | string;
+  stage_label: string;
+  status: "pending" | "processing" | "done" | "failed" | string;
+  message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface ImportSummary {
+  inserted_count: number;
+  duplicate_count: number;
+  beancount_entry_count: number;
+  rule_based_count: number;
+  llm_based_count: number;
+  fallback_count: number;
+  low_confidence_count: number;
+}
+
+export interface ImportDetail extends ImportStatus {
+  stages: ImportStage[];
+  summary: ImportSummary;
 }
 
 export interface DeleteImportResult {
@@ -145,6 +197,32 @@ export interface DeleteImportResult {
 }
 
 export type ImportRecord = ImportStatus;
+
+export interface RuntimeSettings {
+  llm_provider: "claude" | "deepseek";
+  llm_model: string;
+  anthropic_api_key: string;
+  deepseek_api_key: string;
+  llm_base_url: string;
+  llm_batch_size: number;
+  llm_max_concurrency: number;
+  created_at: string;
+  updated_at: string;
+  effective_provider: string;
+  effective_model: string;
+}
+
+export interface RuntimeSettingsUpdateResult extends RuntimeSettings {}
+
+export interface RuntimeSettingsUpdateInput {
+  llm_provider: "claude" | "deepseek";
+  llm_model: string;
+  anthropic_api_key: string;
+  deepseek_api_key: string;
+  llm_base_url: string;
+  llm_batch_size: number;
+  llm_max_concurrency: number;
+}
 
 export interface Transaction {
   id: string;

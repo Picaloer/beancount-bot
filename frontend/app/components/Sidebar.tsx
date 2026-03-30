@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { href: "/budgets", label: "预算规划", icon: BudgetIcon },
   { href: "/transactions", label: "交易明细", icon: TransactionsIcon },
   { href: "/query", label: "问答助手", icon: QueryIcon },
+  { href: "/settings", label: "配置中心", icon: SettingsIcon },
 ];
 
 export default function Sidebar() {
@@ -236,6 +237,15 @@ function QueryIcon(props: SVGProps<SVGSVGElement>) {
       <path d="M7.5 16.5L5 19V6.5C5 5.67 5.67 5 6.5 5H17.5C18.33 5 19 5.67 19 6.5V15.5C19 16.33 18.33 17 17.5 17H9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M9 9.25H15" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
       <path d="M9 12.75H13.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SettingsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M12 8.75A3.25 3.25 0 1 0 12 15.25A3.25 3.25 0 1 0 12 8.75Z" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M19 12C19 12.46 18.96 12.91 18.88 13.35L20.8 14.84L18.84 18.24L16.51 17.31C15.83 17.87 15.03 18.28 14.16 18.51L13.8 21H10.2L9.84 18.51C8.97 18.28 8.17 17.87 7.49 17.31L5.16 18.24L3.2 14.84L5.12 13.35C5.04 12.91 5 12.46 5 12C5 11.54 5.04 11.09 5.12 10.65L3.2 9.16L5.16 5.76L7.49 6.69C8.17 6.13 8.97 5.72 9.84 5.49L10.2 3H13.8L14.16 5.49C15.03 5.72 15.83 6.13 16.51 6.69L18.84 5.76L20.8 9.16L18.88 10.65C18.96 11.09 19 11.54 19 12Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

@@ -100,5 +100,14 @@ class ClassificationPipeline:
         # Should never reach here (FallbackStage always returns)
         return ClassificationResult("其他", "未分类", 0.0, CategorySource.FALLBACK)
 
+    def classify_before_llm(self, tx: RawTransaction) -> ClassificationResult | None:
+        for stage in self._stages:
+            if isinstance(stage, (LLMStage, FallbackStage)):
+                return None
+            result = stage.classify(tx)
+            if result is not None:
+                return result
+        return None
+
     def classify_batch(self, transactions: list[RawTransaction]) -> list[ClassificationResult]:
         return [self.classify(tx) for tx in transactions]

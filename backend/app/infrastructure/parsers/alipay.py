@@ -16,7 +16,13 @@ import io
 import logging
 from datetime import datetime
 
-from app.domain.transaction.models import BillSource, RawTransaction, TransactionDirection
+from app.core.timezone import now_beijing
+from app.domain.transaction.models import (
+    BillSource,
+    RawTransaction,
+    TransactionDirection,
+    build_transaction_dedupe_key,
+)
 from app.infrastructure.parsers.base import BillParserAdapter
 from app.infrastructure.parsers.registry import register
 
@@ -33,6 +39,10 @@ DIRECTION_MAP = {
 }
 
 SUCCESS_STATUSES = {"交易成功", "支付成功", "已完成"}
+
+
+def _stable_external_id(row: dict[str, str]) -> str | None:
+    return row.get("商家订单号", "") or row.get("交易订单号", "") or row.get("交易号", "") or None
 
 
 def _is_header_line(line: str) -> bool:
@@ -103,10 +113,11 @@ class AlipayParser(BillParserAdapter):
         try:
             transaction_at = datetime.strptime(dt_str.strip(), "%Y-%m-%d %H:%M:%S")
         except ValueError:
-            transaction_at = datetime.now()
+            transaction_at = now_beijing()
 
         merchant = row.get("交易对方", "")
         description = row.get("商品名称", "") or row.get("商品说明", "")
+        external_id = _stable_external_id(row)
 
         return RawTransaction(
             source=BillSource.ALIPAY,
@@ -117,7 +128,15 @@ class AlipayParser(BillParserAdapter):
             description=description,
             transaction_at=transaction_at,
             raw_data=dict(row),
-            external_id=(row.get("交易订单号", "") or row.get("交易号", "") or None),
+            external_id=external_id,
+            dedupe_key=build_transaction_dedupe_key(
+                direction=direction,
+                amount=amount,
+                currency="CNY",
+                merchant=merchant,
+                description=description,
+                transaction_at=transaction_at,
+            ),
         )
 
 

@@ -14,7 +14,12 @@ from pathlib import Path
 
 import fitz
 
-from app.domain.transaction.models import BillSource, RawTransaction, TransactionDirection
+from app.domain.transaction.models import (
+    BillSource,
+    RawTransaction,
+    TransactionDirection,
+    build_transaction_dedupe_key,
+)
 from app.infrastructure.parsers.base import BillParserAdapter
 from app.infrastructure.parsers.registry import register
 
@@ -172,7 +177,6 @@ class ChinaMerchantsBankPdfParser(BillParserAdapter):
         amount = float(amount_str.replace(",", ""))
         direction = self._direction_from_amount(amount)
         transaction_at = datetime.strptime(date_str, "%Y-%m-%d")
-        external_id = f"cmb:{date_str}:{amount_str}:{balance_str}:{summary}:{merchant}"
 
         raw_data = {
             "记账日期": date_str,
@@ -192,7 +196,15 @@ class ChinaMerchantsBankPdfParser(BillParserAdapter):
             description=summary,
             transaction_at=transaction_at,
             raw_data=raw_data,
-            external_id=external_id,
+            external_id=f"cmb:{date_str}:{amount_str}:{balance_str}:{summary}:{merchant}",
+            dedupe_key=build_transaction_dedupe_key(
+                direction=direction,
+                amount=abs(amount),
+                currency=currency,
+                merchant=merchant,
+                description=summary,
+                transaction_at=transaction_at,
+            ),
         ), idx
 
     def _direction_from_amount(self, amount: float) -> TransactionDirection:

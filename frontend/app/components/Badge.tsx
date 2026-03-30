@@ -31,13 +31,16 @@ const statusLabels: Record<string, string> = {
   failed: "失败",
 };
 
-const categorySourceStyles: Record<string, string> = {
-  user_rule: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
-  system_rule: "bg-sky-400/10 text-sky-300 ring-sky-400/20",
-  llm: "bg-[rgba(212,168,67,0.12)] text-[var(--gold-400)] ring-[rgba(212,168,67,0.22)]",
-  manual: "bg-rose-400/10 text-rose-300 ring-rose-400/20",
-  fallback: "bg-white/5 text-[var(--text-secondary)] ring-white/10",
-};
+const categoryPalette = [
+  "bg-[rgba(212,168,67,0.12)] text-[var(--gold-400)] ring-[rgba(212,168,67,0.22)]",
+  "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
+  "bg-sky-400/10 text-sky-300 ring-sky-400/20",
+  "bg-violet-400/10 text-violet-300 ring-violet-400/20",
+  "bg-amber-400/10 text-amber-300 ring-amber-400/20",
+  "bg-rose-400/10 text-rose-300 ring-rose-400/20",
+  "bg-cyan-400/10 text-cyan-300 ring-cyan-400/20",
+  "bg-orange-400/10 text-orange-300 ring-orange-400/20",
+];
 
 const categorySourceLabels: Record<string, string> = {
   user_rule: "用户规则",
@@ -46,6 +49,21 @@ const categorySourceLabels: Record<string, string> = {
   manual: "手动调整",
   fallback: "兜底分类",
 };
+
+function hashCategory(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 33 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+}
+
+function getCategoryStyle(categoryL1: string) {
+  if (!categoryL1.trim()) {
+    return "bg-white/5 text-[var(--text-secondary)] ring-white/10";
+  }
+  return categoryPalette[hashCategory(categoryL1) % categoryPalette.length];
+}
 
 export function SourceBadge({ className, source }: { className?: string; source: string }) {
   return (
@@ -75,16 +93,11 @@ export function CategoryTag({
   className?: string;
   source?: string;
 }) {
+  const sourceLabel = source ? categorySourceLabels[source] ?? source : undefined;
+  const title = sourceLabel ? `${categoryL1}${categoryL2 ? ` · ${categoryL2}` : ""} · ${sourceLabel}` : undefined;
+
   return (
-    <span
-      className={cx(
-        badgeBase,
-        "max-w-full text-left",
-        categorySourceStyles[source ?? "fallback"] ?? categorySourceStyles.fallback,
-        className
-      )}
-      title={source ? categorySourceLabels[source] ?? source : undefined}
-    >
+    <span className={cx(badgeBase, "max-w-full text-left", getCategoryStyle(categoryL1), className)} title={title}>
       <span className="truncate">
         {categoryL1}
         {categoryL2 ? ` · ${categoryL2}` : ""}

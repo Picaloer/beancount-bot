@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.application import import_service
 from app.core.config import settings
 from app.core.exceptions import ImportNotFoundError, ParseError
+from app.core.timezone import isoformat_beijing
 from app.infrastructure.persistence.database import get_db
 
 router = APIRouter(prefix="/bills", tags=["bills"])
@@ -41,6 +42,15 @@ def get_import_status(import_id: str, db: Session = Depends(get_db)):
     return status
 
 
+@router.get("/import/{import_id}/detail")
+def get_import_detail(import_id: str, db: Session = Depends(get_db)):
+    """Get rich import detail for the current user."""
+    detail = import_service.get_import_status(db, import_id, settings.default_user_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Import not found")
+    return detail
+
+
 @router.delete("/import/{import_id}")
 def delete_import(import_id: str, db: Session = Depends(get_db)):
     """Delete an import and all generated data."""
@@ -72,8 +82,18 @@ def list_imports(db: Session = Depends(get_db)):
             "file_name": r.file_name,
             "status": r.status,
             "row_count": r.row_count,
+            "total_rows": r.total_rows,
+            "processed_rows": r.processed_rows,
+            "llm_total_batches": r.llm_total_batches,
+            "llm_completed_batches": r.llm_completed_batches,
+            "input_tokens": r.input_tokens,
+            "output_tokens": r.output_tokens,
+            "total_tokens": r.input_tokens + r.output_tokens,
+            "stage_message": r.stage_message,
             "error_message": r.error_message,
-            "imported_at": r.imported_at.isoformat(),
+            "imported_at": isoformat_beijing(r.imported_at),
+            "started_at": isoformat_beijing(r.started_at) if r.started_at else None,
+            "finished_at": isoformat_beijing(r.finished_at) if r.finished_at else None,
         }
         for r in rows
     ]

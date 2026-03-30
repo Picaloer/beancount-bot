@@ -8,6 +8,7 @@ import { SourceBadge, StatusBadge } from "@/app/components/Badge";
 import Card, { cx } from "@/app/components/Card";
 import EmptyState from "@/app/components/EmptyState";
 import PageHeader from "@/app/components/PageHeader";
+import ProgressBar from "@/app/components/ProgressBar";
 import {
   deleteImport,
   getImportStatus,
@@ -47,8 +48,8 @@ export default function ImportPage() {
 
   async function handleFile(file: File) {
     const lowerName = file.name.toLowerCase();
-    if (!lowerName.endsWith(".csv") && !lowerName.endsWith(".xlsx")) {
-      setError("请上传 CSV 或 XLSX 格式的账单文件");
+    if (!lowerName.endsWith(".csv") && !lowerName.endsWith(".xlsx") && !lowerName.endsWith(".pdf")) {
+      setError("请上传 CSV、XLSX 或 PDF 格式的账单文件");
       return;
     }
 
@@ -149,7 +150,7 @@ export default function ImportPage() {
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,.xlsx"
+            accept=".csv,.xlsx,.pdf,application/pdf"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -199,6 +200,7 @@ export default function ImportPage() {
               {imports.map((record) => {
                 const deleting = deletingId === record.import_id;
                 const canDelete = canDeleteImport(record.status);
+                const progress = getImportProgressValue(record);
 
                 return (
                   <Card key={record.import_id} variant="surface" className="p-5">
@@ -215,13 +217,30 @@ export default function ImportPage() {
                           {formatImportTime(record.imported_at)}
                           <span className="mx-2 text-[var(--text-muted)]">/</span>
                           <span className="tabular">{record.row_count} 条交易</span>
+                          <span className="mx-2 text-[var(--text-muted)]">/</span>
+                          <span className="tabular">{record.total_tokens} tokens</span>
                         </p>
+                        {record.stage_message ? (
+                          <p className="mt-2 text-sm text-[var(--text-muted)]">{record.stage_message}</p>
+                        ) : null}
+                        {!isTerminalStatus(record.status) ? (
+                          <ProgressBar
+                            className="mt-4"
+                            size="sm"
+                            tone="gold"
+                            value={progress}
+                            valueLabel={`${progress.toFixed(0)}%`}
+                          />
+                        ) : null}
                         {record.error_message && record.status === "failed" ? (
                           <p className="mt-2 text-sm text-rose-300">{record.error_message}</p>
                         ) : null}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-3">
+                        <Link href={`/import/${record.import_id}`} className={secondaryButtonClassName}>
+                          查看详情
+                        </Link>
                         {record.status === "done" ? (
                           <Link href="/transactions" className={secondaryButtonClassName}>
                             查看交易
@@ -278,6 +297,7 @@ export default function ImportPage() {
 function ImportProgress({ status }: { status: ImportStatus }) {
   const isDone = status.status === "done";
   const isFailed = status.status === "failed";
+  const progress = getImportProgressValue(status);
 
   const steps = [
     { key: "pending", label: "等待处理" },
@@ -301,6 +321,9 @@ function ImportProgress({ status }: { status: ImportStatus }) {
             来源：{sourceLabel(status.source)}
             {status.row_count > 0 ? ` / ${status.row_count} 条交易` : ""}
           </p>
+          {status.stage_message ? (
+            <p className="mt-2 text-sm text-[var(--text-muted)]">{status.stage_message}</p>
+          ) : null}
         </div>
 
         {isDone ? (
@@ -315,49 +338,81 @@ function ImportProgress({ status }: { status: ImportStatus }) {
           {status.error_message || "处理失败，请重试"}
         </div>
       ) : (
-        <div className="mt-6 flex items-start gap-0 overflow-x-auto pb-2">
-          {steps.map((step, index) => {
-            const isCurrent = index === currentIdx;
-            const isComplete = index < currentIdx || (isDone && index === steps.length - 1);
+        <>
+          <div className="mt-6 flex items-start gap-0 overflow-x-auto pb-2">
+            {steps.map((step, index) => {
+              const isCurrent = index === currentIdx;
+              const isComplete = index < currentIdx || (isDone && index === steps.length - 1);
 
-            return (
-              <div key={step.key} className="flex min-w-[120px] flex-1 items-start gap-3">
-                <div className="flex flex-col items-center">
-                  <div
-                    className={cx(
-                      "flex h-10 w-10 items-center justify-center rounded-full border text-sm font-semibold transition-all",
-                      isComplete
-                        ? "border-[var(--gold-400)] bg-[var(--gold-400)] text-black"
-                        : isCurrent
-                          ? "border-[var(--gold-400)] bg-transparent text-[var(--gold-400)] ring-2 ring-[rgba(212,168,67,0.2)] animate-pulse"
-                          : "border-white/8 bg-[var(--bg-muted)] text-[var(--text-muted)]"
-                    )}
-                  >
-                    {isComplete ? "✓" : index + 1}
+              return (
+                <div key={step.key} className="flex min-w-[120px] flex-1 items-start gap-3">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={cx(
+                        "flex h-10 w-10 items-center justify-center rounded-full border text-sm font-semibold transition-all",
+                        isComplete
+                          ? "border-[var(--gold-400)] bg-[var(--gold-400)] text-black"
+                          : isCurrent
+                            ? "border-[var(--gold-400)] bg-transparent text-[var(--gold-400)] ring-2 ring-[rgba(212,168,67,0.2)] animate-pulse"
+                            : "border-white/8 bg-[var(--bg-muted)] text-[var(--text-muted)]"
+                      )}
+                    >
+                      {isComplete ? "✓" : index + 1}
+                    </div>
+                    <span
+                      className={cx(
+                        "mt-3 text-center text-xs leading-5",
+                        isComplete || isCurrent ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
+                      )}
+                    >
+                      {step.label}
+                    </span>
                   </div>
-                  <span
-                    className={cx(
-                      "mt-3 text-center text-xs leading-5",
-                      isComplete || isCurrent ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
-                    )}
-                  >
-                    {step.label}
-                  </span>
+                  {index < steps.length - 1 ? (
+                    <div
+                      className={cx(
+                        "mt-5 h-0.5 flex-1 rounded-full",
+                        index < currentIdx ? "bg-[var(--gold-400)]" : "bg-[var(--bg-muted)]"
+                      )}
+                    />
+                  ) : null}
                 </div>
-                {index < steps.length - 1 ? (
-                  <div
-                    className={cx(
-                      "mt-5 h-0.5 flex-1 rounded-full",
-                      index < currentIdx ? "bg-[var(--gold-400)]" : "bg-[var(--bg-muted)]"
-                    )}
-                  />
-                ) : null}
+              );
+            })}
+          </div>
+
+          <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]">
+            <div className="space-y-4 rounded-[24px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.03)] p-4">
+              <ProgressBar
+                label="整体进度"
+                tone={isDone ? "healthy" : "gold"}
+                value={progress}
+                valueLabel={`${progress.toFixed(0)}%`}
+              />
+              <div className="grid gap-3 sm:grid-cols-3">
+                <MetricChip label="已处理交易" value={`${status.processed_rows}/${Math.max(status.total_rows, status.row_count, 0)}`} />
+                <MetricChip label="LLM 批次" value={`${status.llm_completed_batches}/${status.llm_total_batches}`} />
+                <MetricChip label="累计 Token" value={formatNumber(status.total_tokens)} />
               </div>
-            );
-          })}
-        </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              <MetricChip label="开始时间" value={status.started_at ? formatImportTime(status.started_at) : "—"} />
+              <MetricChip label="完成时间" value={status.finished_at ? formatImportTime(status.finished_at) : "—"} />
+            </div>
+          </div>
+        </>
       )}
     </Card>
+  );
+}
+
+function MetricChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[20px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">{label}</p>
+      <p className="mt-2 text-sm font-medium tabular text-[var(--text-primary)]">{value}</p>
+    </div>
   );
 }
 
@@ -394,6 +449,36 @@ function isTerminalStatus(status: ImportStatus["status"]) {
   return status === "done" || status === "failed";
 }
 
+function getImportProgressValue(status: ImportStatus) {
+  if (status.status === "done") {
+    return 100;
+  }
+  if (status.status === "failed") {
+    return status.processed_rows > 0 ? Math.min(99, calculateProgress(status)) : 0;
+  }
+  return calculateProgress(status);
+}
+
+function calculateProgress(status: ImportStatus) {
+  const totalRows = Math.max(status.total_rows, status.row_count, 0);
+  if (status.status === "pending") {
+    return 5;
+  }
+  if (status.status === "processing") {
+    return totalRows > 0 ? Math.max(12, Math.min(28, (status.processed_rows / totalRows) * 25)) : 18;
+  }
+  if (status.status === "classifying") {
+    if (totalRows > 0) {
+      return Math.max(30, Math.min(92, 30 + (status.processed_rows / totalRows) * 58));
+    }
+    if (status.llm_total_batches > 0) {
+      return Math.max(30, Math.min(92, 30 + (status.llm_completed_batches / status.llm_total_batches) * 58));
+    }
+    return 42;
+  }
+  return 0;
+}
+
 function formatImportTime(value: string) {
   return new Date(value).toLocaleString("zh-CN", {
     year: "numeric",
@@ -403,6 +488,10 @@ function formatImportTime(value: string) {
     minute: "2-digit",
     timeZone: "Asia/Shanghai",
   });
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("zh-CN").format(value);
 }
 
 function sourceLabel(source: string) {

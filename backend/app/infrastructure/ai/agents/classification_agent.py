@@ -5,13 +5,14 @@ Returns ClassificationResult per transaction.
 """
 import json
 import logging
+from dataclasses import dataclass
 
 from app.core.config import settings
 from app.domain.classification.category_tree import category_tree_for_prompt
 from app.domain.classification.pipeline import ClassificationResult
 from app.domain.classification.rule_engine import SYSTEM_RULES, Rule
 from app.domain.transaction.models import CategorySource, RawTransaction
-from app.infrastructure.ai.base import LLMAdapter, LLMMessage
+from app.infrastructure.ai.base import LLMAdapter, LLMMessage, LLMUsage
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +57,24 @@ def _format_rule_knowledge(rules: list[Rule], title: str, limit: int) -> str:
     return "\n".join(lines)
 
 
+@dataclass
+class ClassificationBatchCompletion:
+    results: list[ClassificationResult]
+    usage: LLMUsage
+
+
 class ClassificationAgent:
     agent_id = "classification"
     description = "LLM-based transaction category classification"
 
-    def __init__(self, llm: LLMAdapter, user_rules: list[Rule] | None = None) -> None:
+    def __init__(self, llm: LLMAdapter, user_rules: list[Rule] | None = None, batch_size: int | None = None) -> None:
         self._llm = llm
-        self._batch_size = settings.llm_batch_size
+        self._batch_size = batch_size or settings.llm_batch_size
         self._user_rules = user_rules or []
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
 
     def classify_batch(self, transactions: list[RawTransaction]) -> list[ClassificationResult]:
         """Classify a batch of transactions. Returns one result per transaction."""
@@ -71,12 +82,12 @@ class ClassificationAgent:
 
         for i in range(0, len(transactions), self._batch_size):
             batch = transactions[i: i + self._batch_size]
-            batch_results = self._classify_sub_batch(batch)
-            results.extend(batch_results)
+            completion = self.classify_with_usage(batch)
+            results.extend(completion.results)
 
         return results
 
-    def _classify_sub_batch(self, batch: list[RawTransaction]) -> list[ClassificationResult]:
+    def classify_with_usage(self, batch: list[RawTransaction]) -> "ClassificationBatchCompletion":
         items = [
             {
                 "id": str(idx),
@@ -95,17 +106,23 @@ class ClassificationAgent:
         user_content = f"请对以下交易进行分类:\n{json.dumps(items, ensure_ascii=False)}"
 
         try:
-            response_text = self._llm.complete(
+            completion = self._llm.complete(
                 messages=[LLMMessage(role="user", content=user_content)],
                 system=system,
             )
-            return self._parse_response(response_text, len(batch))
+            return ClassificationBatchCompletion(
+                results=self._parse_response(completion.text, len(batch)),
+                usage=completion.usage,
+            )
         except Exception as e:
             logger.error("Classification LLM call failed: %s", e)
-            return [
-                ClassificationResult("其他", "未分类", 0.0, CategorySource.FALLBACK)
-                for _ in batch
-            ]
+            return ClassificationBatchCompletion(
+                results=[
+                    ClassificationResult("其他", "未分类", 0.0, CategorySource.FALLBACK)
+                    for _ in batch
+                ],
+                usage=LLMUsage(),
+            )
 
     def _build_rule_knowledge(self) -> str:
         sections = []

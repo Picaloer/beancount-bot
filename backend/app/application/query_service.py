@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.core.timezone import now_beijing
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -285,7 +287,7 @@ def _latest_year_month(db: Session, user_id: str) -> str:
     )
     if latest:
         return latest.strftime("%Y-%m")
-    return datetime.utcnow().strftime("%Y-%m")
+    return now_beijing().strftime("%Y-%m")
 
 
 def _extract_category(text: str) -> str | None:

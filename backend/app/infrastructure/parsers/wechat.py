@@ -9,11 +9,18 @@ import csv
 import io
 import logging
 from datetime import datetime, timedelta
+
+from app.core.timezone import now_beijing
 from pathlib import Path
 
 from openpyxl import load_workbook
 
-from app.domain.transaction.models import BillSource, RawTransaction, TransactionDirection
+from app.domain.transaction.models import (
+    BillSource,
+    RawTransaction,
+    TransactionDirection,
+    build_transaction_dedupe_key,
+)
 from app.infrastructure.parsers.base import BillParserAdapter
 from app.infrastructure.parsers.registry import register
 
@@ -137,6 +144,7 @@ class WeChatParser(BillParserAdapter):
 
         merchant = row.get("交易对方", "")
         description = row.get("商品", "")
+        external_id = row.get("商户单号") or row.get("交易单号") or None
 
         return RawTransaction(
             source=BillSource.WECHAT,
@@ -147,7 +155,15 @@ class WeChatParser(BillParserAdapter):
             description=description,
             transaction_at=transaction_at,
             raw_data=dict(row),
-            external_id=row.get("交易单号") or None,
+            external_id=external_id,
+            dedupe_key=build_transaction_dedupe_key(
+                direction=direction,
+                amount=amount,
+                currency="CNY",
+                merchant=merchant,
+                description=description,
+                transaction_at=transaction_at,
+            ),
         )
 
     def _parse_datetime(self, value: str) -> datetime:
@@ -160,7 +176,7 @@ class WeChatParser(BillParserAdapter):
             serial = float(value)
             return datetime(1899, 12, 30) + timedelta(days=serial)
         except ValueError:
-            return datetime.now()
+            return now_beijing()
 
 
 register(WeChatParser())
