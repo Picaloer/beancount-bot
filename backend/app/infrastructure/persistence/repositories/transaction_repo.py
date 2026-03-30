@@ -16,6 +16,8 @@ from app.infrastructure.persistence.models.orm_models import (
     BeancountEntryORM,
     BillImportORM,
     BudgetPlanORM,
+    CategoryRuleORM,
+    RuleSuggestionORM,
     TransactionORM,
     UserORM,
 )
@@ -115,13 +117,228 @@ def update_transaction_category(
     category_l1: str,
     category_l2: str | None,
     source: str,
+    confidence: float | None = None,
 ) -> None:
     tx = db.get(TransactionORM, transaction_id)
     if tx:
         tx.category_l1 = category_l1
         tx.category_l2 = category_l2
         tx.category_source = source
+        if confidence is not None:
+            tx.category_confidence = confidence
     db.commit()
+
+
+def save_rule_suggestion(
+    db: Session,
+    user_id: str,
+    match_field: str,
+    match_value: str,
+    category_l1: str,
+    category_l2: str | None,
+    confidence: float,
+    source: str,
+    reason: str | None = None,
+    evidence_count: int = 1,
+    sample_transactions: list | None = None,
+) -> RuleSuggestionORM:
+    ensure_user(db, user_id)
+
+    normalized_match_value = match_value.strip()
+    if not normalized_match_value:
+        raise ValueError("match_value cannot be empty")
+
+    existing_pending = db.scalar(
+        select(RuleSuggestionORM).where(
+            RuleSuggestionORM.user_id == user_id,
+            RuleSuggestionORM.match_field == match_field,
+            RuleSuggestionORM.match_value == normalized_match_value,
+            RuleSuggestionORM.category_l1 == category_l1,
+            RuleSuggestionORM.category_l2 == category_l2,
+            RuleSuggestionORM.status == "pending",
+        )
+    )
+    if existing_pending:
+        existing_pending.confidence = max(float(existing_pending.confidence), confidence)
+        existing_pending.evidence_count = max(existing_pending.evidence_count, evidence_count)
+        existing_pending.source = source
+        existing_pending.reason = reason
+        if sample_transactions is not None:
+            existing_pending.sample_transactions = sample_transactions
+        db.commit()
+        db.refresh(existing_pending)
+        return existing_pending
+
+    suggestion = RuleSuggestionORM(
+        id=str(uuid4()),
+        user_id=user_id,
+        match_field=match_field,
+        match_value=normalized_match_value,
+        category_l1=category_l1,
+        category_l2=category_l2,
+        confidence=confidence,
+        source=source,
+        status="pending",
+        reason=reason,
+        evidence_count=evidence_count,
+        sample_transactions=sample_transactions or [],
+    )
+    db.add(suggestion)
+    db.commit()
+    db.refresh(suggestion)
+    return suggestion
+
+
+def list_rule_suggestions(db: Session, user_id: str, status: str = "pending") -> list[RuleSuggestionORM]:
+    return db.scalars(
+        select(RuleSuggestionORM)
+        .where(
+            RuleSuggestionORM.user_id == user_id,
+            RuleSuggestionORM.status == status,
+        )
+        .order_by(RuleSuggestionORM.created_at.desc())
+    ).all()
+
+
+def generate_rule_suggestions_from_history(
+    db: Session,
+    user_id: str,
+    min_llm_confidence: float = 0.85,
+    min_llm_evidence: int = 2,
+) -> list[RuleSuggestionORM]:
+    rows = db.scalars(
+        select(TransactionORM).where(
+            TransactionORM.user_id == user_id,
+            TransactionORM.merchant != "",
+            TransactionORM.category_l1 != "其他",
+            TransactionORM.category_source.in_([CategorySource.LLM.value, CategorySource.MANUAL.value]),
+        )
+    ).all()
+
+    grouped: dict[tuple[str, str, str | None], list[TransactionORM]] = {}
+    for row in rows:
+        key = (row.merchant.strip(), row.category_l1, row.category_l2)
+        if not key[0]:
+            continue
+        grouped.setdefault(key, []).append(row)
+
+    created: list[RuleSuggestionORM] = []
+    for (merchant, category_l1, category_l2), txs in grouped.items():
+        manual_txs = [tx for tx in txs if tx.category_source == CategorySource.MANUAL.value]
+        llm_txs = [
+            tx
+            for tx in txs
+            if tx.category_source == CategorySource.LLM.value
+            and float(tx.category_confidence) >= min_llm_confidence
+        ]
+
+        if manual_txs:
+            candidate_txs = manual_txs
+            source = "manual_feedback"
+            confidence = 1.0
+            reason = "历史上用户手动修正过该商户的分类，建议确认后沉淀为规则。"
+        elif len(llm_txs) >= min_llm_evidence:
+            candidate_txs = llm_txs
+            source = "llm_feedback"
+            confidence = round(
+                sum(float(tx.category_confidence) for tx in llm_txs) / len(llm_txs),
+                3,
+            )
+            reason = "该商户被大模型多次高置信度分类到同一类别，建议人工确认后转为规则。"
+        else:
+            continue
+
+        existing_rule = db.scalar(
+            select(CategoryRuleORM).where(
+                CategoryRuleORM.user_id == user_id,
+                CategoryRuleORM.match_field == "merchant",
+                CategoryRuleORM.match_value == merchant,
+                CategoryRuleORM.category_l1 == category_l1,
+                CategoryRuleORM.category_l2 == category_l2,
+            )
+        )
+        if existing_rule:
+            continue
+
+        sample_transactions = [
+            {
+                "transaction_id": tx.id,
+                "merchant": tx.merchant,
+                "description": tx.description,
+                "amount": float(tx.amount),
+                "source": tx.source,
+                "transaction_at": tx.transaction_at.isoformat(),
+                "category_source": tx.category_source,
+                "category_confidence": float(tx.category_confidence),
+            }
+            for tx in candidate_txs[:5]
+        ]
+        created.append(
+            save_rule_suggestion(
+                db,
+                user_id=user_id,
+                match_field="merchant",
+                match_value=merchant,
+                category_l1=category_l1,
+                category_l2=category_l2,
+                confidence=confidence,
+                source=source,
+                reason=reason,
+                evidence_count=len(candidate_txs),
+                sample_transactions=sample_transactions,
+            )
+        )
+
+    return created
+
+
+def approve_rule_suggestion(db: Session, suggestion_id: str, user_id: str) -> CategoryRuleORM:
+    suggestion = db.get(RuleSuggestionORM, suggestion_id)
+    if not suggestion or suggestion.user_id != user_id:
+        raise ValueError("Rule suggestion not found")
+    if suggestion.status != "pending":
+        raise ValueError("Rule suggestion is not pending")
+
+    existing_rule = db.scalar(
+        select(CategoryRuleORM).where(
+            CategoryRuleORM.user_id == user_id,
+            CategoryRuleORM.match_field == suggestion.match_field,
+            CategoryRuleORM.match_value == suggestion.match_value,
+            CategoryRuleORM.category_l1 == suggestion.category_l1,
+            CategoryRuleORM.category_l2 == suggestion.category_l2,
+        )
+    )
+    if existing_rule is None:
+        existing_rule = CategoryRuleORM(
+            id=str(uuid4()),
+            user_id=user_id,
+            match_field=suggestion.match_field,
+            match_value=suggestion.match_value,
+            category_l1=suggestion.category_l1,
+            category_l2=suggestion.category_l2,
+            priority=10,
+        )
+        db.add(existing_rule)
+
+    suggestion.status = "approved"
+    suggestion.resolved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(existing_rule)
+    return existing_rule
+
+
+def reject_rule_suggestion(db: Session, suggestion_id: str, user_id: str) -> RuleSuggestionORM:
+    suggestion = db.get(RuleSuggestionORM, suggestion_id)
+    if not suggestion or suggestion.user_id != user_id:
+        raise ValueError("Rule suggestion not found")
+    if suggestion.status != "pending":
+        raise ValueError("Rule suggestion is not pending")
+
+    suggestion.status = "rejected"
+    suggestion.resolved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(suggestion)
+    return suggestion
 
 
 def save_beancount_entry(

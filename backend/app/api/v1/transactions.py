@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from app.core.config import settings
+from app.domain.classification.category_tree import get_l2_options, is_valid_l1
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.repositories import transaction_repo as repo
 
@@ -65,10 +66,43 @@ def update_category(
     tx = db.get(TransactionORM, transaction_id)
     if not tx or tx.user_id != settings.default_user_id:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if not is_valid_l1(body.category_l1):
+        raise HTTPException(status_code=400, detail="Invalid category_l1")
+    if body.category_l2 and body.category_l2 not in get_l2_options(body.category_l1):
+        raise HTTPException(status_code=400, detail="Invalid category_l2 for category_l1")
 
     repo.update_transaction_category(
-        db, transaction_id, body.category_l1, body.category_l2, "manual"
+        db,
+        transaction_id,
+        body.category_l1,
+        body.category_l2,
+        "manual",
+        confidence=1.0,
     )
+
+    if tx.merchant.strip():
+        repo.save_rule_suggestion(
+            db,
+            user_id=tx.user_id,
+            match_field="merchant",
+            match_value=tx.merchant,
+            category_l1=body.category_l1,
+            category_l2=body.category_l2,
+            confidence=1.0,
+            source="manual_feedback",
+            reason="用户手动修正了该商户的分类，建议确认后沉淀为规则。",
+            evidence_count=1,
+            sample_transactions=[
+                {
+                    "transaction_id": tx.id,
+                    "merchant": tx.merchant,
+                    "description": tx.description,
+                    "amount": float(tx.amount),
+                    "source": tx.source,
+                    "transaction_at": tx.transaction_at.isoformat(),
+                }
+            ],
+        )
 
     try:
         refreshed_tx = db.get(TransactionORM, transaction_id)
@@ -152,5 +186,6 @@ def _serialize(tx) -> dict:
         "category_l1": tx.category_l1,
         "category_l2": tx.category_l2,
         "category_source": tx.category_source,
+        "category_confidence": float(tx.category_confidence),
         "transaction_at": tx.transaction_at.isoformat(),
     }

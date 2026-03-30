@@ -10,12 +10,24 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(
-    settings.database_url,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
-)
+def _build_engine(url: str):
+    """Create an engine with dialect-appropriate settings."""
+    if url.startswith("sqlite"):
+        from sqlalchemy.pool import StaticPool
+        return create_engine(
+            url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+    )
+
+
+engine = _build_engine(settings.database_url)
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
