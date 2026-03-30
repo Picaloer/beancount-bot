@@ -2,7 +2,25 @@
 
 import Link from "next/link";
 import useSWR from "swr";
+
+import { SourceBadge, StatusBadge } from "@/app/components/Badge";
+import Card, { cardClassName, cx } from "@/app/components/Card";
+import EmptyState from "@/app/components/EmptyState";
+import PageHeader from "@/app/components/PageHeader";
+import ProgressBar from "@/app/components/ProgressBar";
+import StatCard from "@/app/components/StatCard";
 import { getBudgetPlan, getTransactionSummary, listImports, listMonths } from "@/lib/api";
+
+const currencyFormatter = new Intl.NumberFormat("zh-CN", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const primaryLinkClassName =
+  "inline-flex items-center justify-center rounded-xl bg-[var(--gold-400)] px-4 py-2.5 text-sm font-medium text-black transition hover:bg-[var(--gold-500)]";
+
+const secondaryLinkClassName =
+  "inline-flex items-center justify-center rounded-xl border border-[rgba(212,168,67,0.28)] bg-[rgba(255,255,255,0.02)] px-4 py-2.5 text-sm font-medium text-[var(--gold-400)] transition hover:bg-[rgba(212,168,67,0.08)] hover:text-[var(--text-primary)]";
 
 export default function Dashboard() {
   const { data: summary } = useSWR("summary", getTransactionSummary);
@@ -20,309 +38,353 @@ export default function Dashboard() {
   const net = totalIncome - totalExpense;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="mt-1 text-2xl font-bold text-gray-900">财务看板</h1>
-        <p className="text-sm text-gray-500">全账期汇总概览</p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Dark Ledger Overview"
+        title="财务看板"
+        description="把导入、预算、报告和分类结果集中在一册暗金账本里。先看累计收支，再决定本月该补哪一页。"
+      >
+        <Link href="/import" className={primaryLinkClassName}>
+          立即导入账单
+        </Link>
+        <Link href={latestMonth ? `/reports/${latestMonth}` : "/reports"} className={secondaryLinkClassName}>
+          {latestMonth ? `查看 ${latestMonth} 报告` : "浏览财务报告"}
+        </Link>
+      </PageHeader>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <SummaryCard
+        <StatCard
           label="累计支出"
-          value={`¥${totalExpense.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`}
-          color="text-red-600"
-          bg="bg-red-50"
+          tone="rose"
+          value={formatCurrency(totalExpense)}
+          hint={`${summary?.expense?.count ?? 0} 笔支出`}
         />
-        <SummaryCard
+        <StatCard
           label="累计收入"
-          value={`¥${totalIncome.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`}
-          color="text-green-600"
-          bg="bg-green-50"
+          tone="emerald"
+          value={formatCurrency(totalIncome)}
+          hint={`${summary?.income?.count ?? 0} 笔收入`}
         />
-        <SummaryCard
+        <StatCard
           label="净资产变化"
-          value={`${net >= 0 ? "+" : ""}¥${net.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`}
-          color={net >= 0 ? "text-indigo-600" : "text-orange-600"}
-          bg={net >= 0 ? "bg-indigo-50" : "bg-orange-50"}
+          tone={net >= 0 ? "gold" : "rose"}
+          value={`${net >= 0 ? "+" : ""}${formatCurrency(net)}`}
+          hint={net >= 0 ? "账面净流入" : "账面净流出"}
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <BudgetOverviewCard latestMonth={latestMonth} budget={budget} />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-1">
-          <ActionCard
-            title="导入账单"
-            description="上传微信支付 XLSX/CSV 或支付宝 CSV 账单"
-            href="/import"
-            icon="📂"
-          />
-          {latestMonth ? (
-            <ActionCard
-              title={`查看 ${latestMonth} 报告`}
-              description="查看最新月度财务分析报告"
-              href={`/reports/${latestMonth}`}
-              icon="📊"
-            />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.55fr_1fr]">
+        <Card variant="surface" className="p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Budget Ledger</p>
+              <h2 className="mt-3 text-2xl font-bold tracking-[-0.03em] text-[var(--text-primary)]">
+                {latestMonth ? `${latestMonth} 月预算总览` : "等待首个账期"}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
+                {latestMonth
+                  ? "从自动预算建议里先看整体使用率，再确认哪些分类已经逼近上限。"
+                  : "导入账单后，这里会生成预算总额、分类建议和整体执行率。"}
+              </p>
+            </div>
+            <Link
+              href={latestMonth ? `/budgets/${latestMonth}` : "/budgets"}
+              className="inline-flex items-center rounded-xl border border-[rgba(212,168,67,0.22)] px-4 py-2 text-sm font-medium text-[var(--gold-400)] transition hover:bg-[rgba(212,168,67,0.08)]"
+            >
+              查看预算详情
+            </Link>
+          </div>
+
+          {!latestMonth ? (
+            <div className="mt-6">
+              <EmptyState
+                title="还没有预算页"
+                description="先导入微信、支付宝或招商银行账单，系统会按历史消费趋势生成预算建议。"
+                action={
+                  <Link href="/import" className={primaryLinkClassName}>
+                    去导入账单
+                  </Link>
+                }
+              />
+            </div>
+          ) : !budget ? (
+            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <SkeletonPanel />
+              <SkeletonPanel />
+              <SkeletonPanel />
+            </div>
           ) : (
-            <ActionCard
-              title="财务报告"
-              description="导入账单后生成月度报告"
-              href="/reports"
-              icon="📊"
-            />
+            <>
+              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <BudgetMetric title="预算总额" value={budget.total_budget} accent="text-[var(--gold-400)]" />
+                <BudgetMetric title="已支出" value={budget.total_spent} accent="text-rose-300" />
+                <BudgetMetric
+                  title="剩余空间"
+                  value={budget.remaining}
+                  accent={budget.remaining >= 0 ? "text-emerald-300" : "text-rose-300"}
+                />
+              </div>
+
+              <div className="mt-6 rounded-[24px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.02)] p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-[var(--text-secondary)]">整体使用率</p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">
+                      {budget.generated ? "已按最新流水重新生成预算建议" : "当前展示缓存预算"}
+                    </p>
+                  </div>
+                  <span className="tabular rounded-full bg-white/5 px-3 py-1 text-sm text-[var(--text-primary)]">
+                    {budget.usage_percentage.toFixed(1)}%
+                  </span>
+                </div>
+                <ProgressBar
+                  className="mt-4"
+                  tone={budgetTone(budget.usage_percentage)}
+                  value={budget.usage_percentage}
+                  valueLabel={`${budget.usage_percentage.toFixed(1)}%`}
+                />
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {budget.categories.slice(0, 4).map((category) => (
+                  <div
+                    key={category.id}
+                    className="rounded-[22px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.02)] p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-[var(--text-primary)]">{category.category_l1}</p>
+                        <p className="mt-1 text-sm text-[var(--text-muted)]">
+                          已支出 {formatCurrency(category.spent)} / 预算 {formatCurrency(category.budget)}
+                        </p>
+                      </div>
+                      <span className={budgetStatusClassName(category.status)}>{budgetStatusLabel(category.status)}</span>
+                    </div>
+                    <ProgressBar
+                      className="mt-4"
+                      size="sm"
+                      tone={budgetStatusTone(category.status)}
+                      value={category.usage_percentage}
+                      valueLabel={`${category.usage_percentage.toFixed(1)}%`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
           )}
+        </Card>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1">
+          <QuickActionCard
+            href="/import"
+            icon={<UploadIcon className="h-6 w-6" />}
+            title="导入账单"
+            description="上传微信、支付宝或招商银行账单，开启新的分类批次。"
+          />
+          <QuickActionCard
+            href={latestMonth ? `/reports/${latestMonth}` : "/transactions"}
+            icon={<InsightIcon className="h-6 w-6" />}
+            title={latestMonth ? `${latestMonth} 月报告` : "查看交易明细"}
+            description={
+              latestMonth
+                ? "进入最新账期，查看图表、商家排行和 AI 财务洞察。"
+                : "当前还没有月报，先去查看已导入的交易流水。"
+            }
+          />
         </div>
       </div>
 
-      <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">最近导入</h2>
-          <Link href="/import" className="text-sm text-indigo-600 hover:underline">
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold tracking-[-0.02em] text-[var(--text-primary)]">最近导入</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">最近几次账单导入状态，适合快速确认分类流水是否已经落库。</p>
+          </div>
+          <Link href="/import" className="text-sm font-medium text-[var(--gold-400)] transition hover:text-[var(--text-primary)]">
             查看全部
           </Link>
         </div>
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-          {!imports || imports.length === 0 ? (
-            <div className="py-12 text-center text-gray-400">
-              <p className="mb-2 text-3xl">📄</p>
-              <p>
-                暂无导入记录，
-                <Link href="/import" className="text-indigo-600 hover:underline">
-                  立即导入
-                </Link>
-              </p>
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                <tr>
-                  <th className="px-4 py-3 text-left">文件</th>
-                  <th className="px-4 py-3 text-left">来源</th>
-                  <th className="px-4 py-3 text-right">条数</th>
-                  <th className="px-4 py-3 text-left">状态</th>
-                  <th className="px-4 py-3 text-left">时间</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {imports.slice(0, 5).map((imp) => (
-                  <tr key={imp.import_id} className="hover:bg-gray-50">
-                    <td className="max-w-xs truncate px-4 py-3">{imp.file_name}</td>
-                    <td className="px-4 py-3">
-                      <SourceBadge source={imp.source} />
-                    </td>
-                    <td className="px-4 py-3 text-right">{imp.row_count}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={imp.status} />
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {new Date(imp.imported_at).toLocaleDateString("zh-CN")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
-function SummaryCard({
-  label,
-  value,
-  color,
-  bg,
-}: {
-  label: string;
-  value: string;
-  color: string;
-  bg: string;
-}) {
-  return (
-    <div className={`${bg} rounded-xl p-5`}>
-      <p className="mb-1 text-sm text-gray-500">{label}</p>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-    </div>
-  );
-}
-
-function BudgetOverviewCard({
-  latestMonth,
-  budget,
-}: {
-  latestMonth?: string;
-  budget?: {
-    total_budget: number;
-    total_spent: number;
-    remaining: number;
-    usage_percentage: number;
-    generated: boolean;
-    categories: {
-      category_l1: string;
-      budget: number;
-      spent: number;
-      usage_percentage: number;
-      status: "healthy" | "warning" | "overspent";
-    }[];
-  };
-}) {
-  return (
-    <div className="rounded-2xl border border-amber-200/80 bg-white/90 p-6 shadow-[0_16px_50px_rgba(120,98,63,0.08)]">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-amber-700">预算规划</p>
-          <h2 className="mt-1 text-xl font-semibold text-stone-900">
-            {latestMonth ? `${latestMonth} 智能预算` : "智能预算"}
-          </h2>
-          <p className="mt-1 text-sm text-stone-500">
-            {latestMonth ? "基于近 6 个月消费趋势自动推荐预算。" : "导入账单后自动生成预算建议。"}
-          </p>
-        </div>
-        <Link
-          href={latestMonth ? `/budgets/${latestMonth}` : "/budgets"}
-          className="inline-flex items-center rounded-full border border-amber-300 px-4 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-50"
-        >
-          查看预算详情
-        </Link>
-      </div>
-
-      {!latestMonth ? (
-        <div className="mt-6 rounded-xl border border-dashed border-stone-300 px-4 py-8 text-center text-sm text-stone-500">
-          暂无可用账期，请先导入账单生成预算。
-        </div>
-      ) : !budget ? (
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <SkeletonStat />
-          <SkeletonStat />
-          <SkeletonStat />
-        </div>
-      ) : (
-        <>
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <BudgetStat label="预算总额" value={budget.total_budget} accent="text-amber-700" />
-            <BudgetStat label="已支出" value={budget.total_spent} accent="text-rose-600" />
-            <BudgetStat label="剩余可用" value={budget.remaining} accent={budget.remaining >= 0 ? "text-emerald-600" : "text-orange-600"} />
-          </div>
-
-          <div className="mt-5">
-            <div className="mb-2 flex items-center justify-between text-sm text-stone-500">
-              <span>整体使用率</span>
-              <span>{budget.usage_percentage.toFixed(1)}%</span>
-            </div>
-            <div className="h-3 overflow-hidden rounded-full bg-stone-100">
-              <div
-                className={`h-full rounded-full ${budget.usage_percentage >= 100 ? "bg-red-500" : budget.usage_percentage >= 80 ? "bg-amber-500" : "bg-emerald-500"}`}
-                style={{ width: `${Math.min(budget.usage_percentage, 100)}%` }}
-              />
-            </div>
-            <p className="mt-2 text-xs text-stone-500">
-              {budget.generated ? "已按最新流水重新生成预算建议。" : "当前展示已缓存的月度预算。"}
-            </p>
-          </div>
-
-          <div className="mt-6 space-y-3">
-            {budget.categories.slice(0, 4).map((category) => (
-              <div key={category.category_l1} className="rounded-xl border border-stone-200 px-4 py-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-stone-900">{category.category_l1}</p>
-                    <p className="text-sm text-stone-500">
-                      已支出 ¥{category.spent.toLocaleString("zh-CN", { minimumFractionDigits: 2 })} / 预算 ¥{category.budget.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
+        {!imports || imports.length === 0 ? (
+          <EmptyState
+            title="还没有导入记录"
+            description="导入一份账单后，这里会按卡片时间线展示文件来源、状态和交易条数。"
+            action={
+              <Link href="/import" className={primaryLinkClassName}>
+                去导入账单
+              </Link>
+            }
+          />
+        ) : (
+          <div className="grid gap-3">
+            {imports.slice(0, 5).map((record) => (
+              <Card key={record.import_id} variant="surface" className="p-5">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="max-w-full truncate text-base font-semibold text-[var(--text-primary)]">
+                        {record.file_name}
+                      </p>
+                      <SourceBadge source={record.source} />
+                      <StatusBadge status={record.status} />
+                    </div>
+                    <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                      {formatImportTime(record.imported_at)}
+                      <span className="mx-2 text-[var(--text-muted)]">/</span>
+                      <span className="tabular">{record.row_count} 条交易</span>
                     </p>
+                    {record.error_message && record.status === "failed" ? (
+                      <p className="mt-2 text-sm text-rose-300">{record.error_message}</p>
+                    ) : null}
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusClassName(category.status)}`}>
-                    {statusLabel(category.status)}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {record.status === "done" ? (
+                      <Link href="/transactions" className={secondaryLinkClassName}>
+                        查看交易
+                      </Link>
+                    ) : (
+                      <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-[var(--text-muted)]">
+                        处理中会自动刷新
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-100">
-                  <div
-                    className={`h-full rounded-full ${category.status === "overspent" ? "bg-red-500" : category.status === "warning" ? "bg-amber-500" : "bg-emerald-500"}`}
-                    style={{ width: `${Math.min(category.usage_percentage, 100)}%` }}
-                  />
-                </div>
-              </div>
+              </Card>
             ))}
           </div>
-        </>
-      )}
+        )}
+      </section>
     </div>
   );
 }
 
-function BudgetStat({
-  label,
-  value,
+function BudgetMetric({
   accent,
+  title,
+  value,
 }: {
-  label: string;
-  value: number;
   accent: string;
+  title: string;
+  value: number;
 }) {
   return (
-    <div className="rounded-xl bg-amber-50/70 p-4">
-      <p className="text-sm text-stone-500">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${accent}`}>
-        ¥{value.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
-      </p>
+    <div className="rounded-[22px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.03)] p-4">
+      <p className="text-sm text-[var(--text-secondary)]">{title}</p>
+      <p className={cx("tabular mt-2 text-2xl font-bold tracking-[-0.03em]", accent)}>{formatCurrency(value)}</p>
     </div>
   );
 }
 
-function SkeletonStat() {
-  return <div className="h-24 animate-pulse rounded-xl bg-stone-100" />;
-}
-
-function ActionCard({
-  title,
+function QuickActionCard({
   description,
   href,
   icon,
+  title,
 }: {
-  title: string;
   description: string;
   href: string;
-  icon: string;
+  icon: React.ReactNode;
+  title: string;
 }) {
   return (
     <Link
       href={href}
-      className="flex items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 transition-all hover:border-indigo-400 hover:shadow-sm"
+      className={cardClassName(
+        "surface",
+        "group block p-5 transition hover:-translate-y-0.5 hover:border-[rgba(212,168,67,0.28)]"
+      )}
     >
-      <span className="text-3xl">{icon}</span>
-      <div>
-        <p className="font-semibold text-gray-900">{title}</p>
-        <p className="mt-0.5 text-sm text-gray-500">{description}</p>
+      <div className="flex items-start gap-4">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[rgba(212,168,67,0.12)] text-[var(--gold-400)]">
+          {icon}
+        </div>
+        <div>
+          <p className="text-base font-semibold text-[var(--text-primary)]">{title}</p>
+          <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">{description}</p>
+          <p className="mt-4 text-sm font-medium text-[var(--gold-400)] transition group-hover:text-[var(--text-primary)]">
+            打开页面
+          </p>
+        </div>
       </div>
     </Link>
   );
 }
 
-function SourceBadge({ source }: { source: string }) {
-  const map: Record<string, string> = { wechat: "微信", alipay: "支付宝" };
-  return <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">{map[source] ?? source}</span>;
+function SkeletonPanel() {
+  return <div className="h-28 animate-pulse rounded-[22px] bg-[rgba(255,255,255,0.04)]" />;
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    done: { label: "完成", cls: "bg-green-100 text-green-700" },
-    pending: { label: "等待中", cls: "bg-yellow-100 text-yellow-700" },
-    processing: { label: "处理中", cls: "bg-blue-100 text-blue-700" },
-    classifying: { label: "分类中", cls: "bg-purple-100 text-purple-700" },
-    failed: { label: "失败", cls: "bg-red-100 text-red-700" },
-  };
-  const { label, cls } = map[status] ?? { label: status, cls: "bg-gray-100 text-gray-700" };
-  return <span className={`rounded-full px-2 py-0.5 text-xs ${cls}`}>{label}</span>;
+function UploadIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <path d="M12 5V14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M8 10.5L12 14.5L16 10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 18.5H19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
 }
 
-function statusClassName(status: "healthy" | "warning" | "overspent") {
-  if (status === "overspent") return "bg-red-100 text-red-700";
-  if (status === "warning") return "bg-amber-100 text-amber-700";
-  return "bg-emerald-100 text-emerald-700";
+function InsightIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <path d="M5 18.5V11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 18.5V6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M19 18.5V13.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
 }
 
-function statusLabel(status: "healthy" | "warning" | "overspent") {
-  if (status === "overspent") return "超支";
-  if (status === "warning") return "预警";
+function formatCurrency(value: number) {
+  return `¥${currencyFormatter.format(value)}`;
+}
+
+function budgetTone(usage: number) {
+  if (usage >= 100) {
+    return "overspent" as const;
+  }
+  if (usage >= 80) {
+    return "warning" as const;
+  }
+  return "gold" as const;
+}
+
+function budgetStatusTone(status: "healthy" | "warning" | "overspent") {
+  if (status === "overspent") {
+    return "overspent" as const;
+  }
+  if (status === "warning") {
+    return "warning" as const;
+  }
+  return "healthy" as const;
+}
+
+function budgetStatusClassName(status: "healthy" | "warning" | "overspent") {
+  if (status === "overspent") {
+    return "rounded-full bg-rose-400/10 px-3 py-1 text-xs font-medium text-rose-300 ring-1 ring-inset ring-rose-400/20";
+  }
+  if (status === "warning") {
+    return "rounded-full bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-300 ring-1 ring-inset ring-amber-400/20";
+  }
+  return "rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-medium text-emerald-300 ring-1 ring-inset ring-emerald-400/20";
+}
+
+function budgetStatusLabel(status: "healthy" | "warning" | "overspent") {
+  if (status === "overspent") {
+    return "超支";
+  }
+  if (status === "warning") {
+    return "预警";
+  }
   return "健康";
+}
+
+function formatImportTime(value: string) {
+  return new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Shanghai",
+  });
 }

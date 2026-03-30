@@ -15,7 +15,7 @@ class DeepSeekClient(LLMAdapter):
             api_key=settings.deepseek_api_key,
             base_url="https://api.deepseek.com",
         )
-        self._model = settings.llm_model
+        self._model = settings.llm_model 
 
     def complete(self, messages: list[LLMMessage], system: str = "") -> str:
         try:

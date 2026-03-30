@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import useSWR from "swr";
+
+import Card, { cx } from "@/app/components/Card";
+import EmptyState from "@/app/components/EmptyState";
+import PageHeader from "@/app/components/PageHeader";
+import ProgressBar from "@/app/components/ProgressBar";
 import { getBudgetPlan, listMonths } from "@/lib/api";
+
+const primaryButtonClassName =
+  "inline-flex items-center justify-center rounded-xl bg-[var(--gold-400)] px-4 py-2.5 text-sm font-medium text-black transition hover:bg-[var(--gold-500)]";
 
 export default function BudgetsPage() {
   const { data: months } = useSWR("months", listMonths);
@@ -13,24 +21,18 @@ export default function BudgetsPage() {
   );
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-sm font-medium text-amber-700">Budget Planner</p>
-          <h1 className="text-3xl font-bold text-stone-900">预算规划</h1>
-          <p className="mt-2 text-sm text-stone-500">
-            根据历史消费趋势，为每个账期自动生成预算建议与执行状态。
-          </p>
-        </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Budget Planner"
+        title="预算规划"
+        description="像翻阅一本年度预算册一样查看每个月的建议与执行进度，优先关注最新账期和已经逼近上限的分类。"
+      >
         {latestMonth ? (
-          <Link
-            href={`/budgets/${latestMonth}`}
-            className="inline-flex items-center rounded-full bg-amber-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-700"
-          >
+          <Link href={`/budgets/${latestMonth}`} className={primaryButtonClassName}>
             查看最新预算
           </Link>
         ) : null}
-      </div>
+      </PageHeader>
 
       {!months ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -39,44 +41,62 @@ export default function BudgetsPage() {
           <SkeletonCard />
         </div>
       ) : months.months.length === 0 ? (
-        <EmptyState />
+        <EmptyState
+          title="还没有可分析的账期"
+          description="请先导入微信、支付宝或招商银行账单，系统会自动生成月度预算建议。"
+          action={
+            <Link href="/import" className={primaryButtonClassName}>
+              去导入账单
+            </Link>
+          }
+        />
       ) : (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.4fr_1fr]">
-          <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-center justify-between">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.45fr_1fr]">
+          <Card variant="surface" className="p-6">
+            <div className="mb-5 flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold text-stone-900">可用账期</h2>
-                <p className="mt-1 text-sm text-stone-500">选择任一月份查看预算建议。</p>
+                <h2 className="text-2xl font-bold tracking-[-0.03em] text-[var(--text-primary)]">可用账期</h2>
+                <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">选择任一月份查看预算建议和执行情况。</p>
               </div>
-              <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600">
+              <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-medium text-[var(--text-secondary)]">
                 {months.months.length} 个账期
               </span>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {months.months.map((month) => (
-                <Link
-                  key={month}
-                  href={`/budgets/${month}`}
-                  className={`rounded-xl border px-4 py-4 transition-all hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-sm ${month === latestMonth ? "border-amber-300 bg-amber-50/70" : "border-stone-200 bg-stone-50/50"}`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-base font-semibold text-stone-900">{month}</p>
-                      <p className="mt-1 text-sm text-stone-500">查看该月预算执行情况</p>
-                    </div>
-                    {month === latestMonth ? (
-                      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700">
-                        最新
-                      </span>
-                    ) : null}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
+              {months.months.map((month) => {
+                const isLatest = month === latestMonth;
 
-          <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-stone-900">本月预算概览</h2>
+                return (
+                  <Link
+                    key={month}
+                    href={`/budgets/${month}`}
+                    className={cx(
+                      "rounded-[24px] border p-4 transition-all hover:-translate-y-0.5",
+                      isLatest
+                        ? "border-[rgba(212,168,67,0.24)] bg-[rgba(212,168,67,0.08)] shadow-[0_18px_40px_rgba(0,0,0,0.26)]"
+                        : "border-[var(--border-subtle)] bg-[rgba(255,255,255,0.02)] hover:border-[rgba(212,168,67,0.18)]"
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-semibold text-[var(--text-primary)]">{month}</p>
+                        <p className="mt-1 text-sm text-[var(--text-secondary)]">查看该月预算执行情况</p>
+                      </div>
+                      {isLatest ? (
+                        <span className="rounded-full bg-[rgba(212,168,67,0.14)] px-2.5 py-1 text-xs font-medium text-[var(--gold-400)]">
+                          最新
+                        </span>
+                      ) : null}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card variant="elevated" className="p-6">
+            <p className="text-xs uppercase tracking-[0.24em] text-[var(--gold-400)]">Current Snapshot</p>
+            <h2 className="mt-4 text-2xl font-bold tracking-[-0.03em] text-[var(--text-primary)]">本月预算概览</h2>
             {!latestMonth || !budget ? (
               <div className="mt-6 space-y-3">
                 <SkeletonCard />
@@ -84,34 +104,27 @@ export default function BudgetsPage() {
               </div>
             ) : (
               <>
-                <p className="mt-2 text-sm text-stone-500">{latestMonth} 自动生成预算摘要</p>
+                <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">{latestMonth} 自动生成预算摘要</p>
                 <div className="mt-5 grid grid-cols-1 gap-3">
-                  <Metric title="预算总额" value={budget.total_budget} tone="text-amber-700" />
-                  <Metric title="已支出" value={budget.total_spent} tone="text-rose-600" />
-                  <Metric title="剩余空间" value={budget.remaining} tone={budget.remaining >= 0 ? "text-emerald-600" : "text-orange-600"} />
+                  <Metric title="预算总额" value={budget.total_budget} tone="text-[var(--gold-400)]" />
+                  <Metric title="已支出" value={budget.total_spent} tone="text-rose-300" />
+                  <Metric title="剩余空间" value={budget.remaining} tone={budget.remaining >= 0 ? "text-emerald-300" : "text-rose-300"} />
                 </div>
-                <div className="mt-5">
-                  <div className="mb-2 flex items-center justify-between text-sm text-stone-500">
-                    <span>使用率</span>
-                    <span>{budget.usage_percentage.toFixed(1)}%</span>
-                  </div>
-                  <div className="h-3 overflow-hidden rounded-full bg-white/80">
-                    <div
-                      className={`h-full rounded-full ${budget.usage_percentage >= 100 ? "bg-red-500" : budget.usage_percentage >= 80 ? "bg-amber-500" : "bg-emerald-500"}`}
-                      style={{ width: `${Math.min(budget.usage_percentage, 100)}%` }}
-                    />
-                  </div>
-                </div>
+                <ProgressBar
+                  className="mt-5"
+                  label="使用率"
+                  tone={budget.usage_percentage >= 100 ? "overspent" : budget.usage_percentage >= 80 ? "warning" : "gold"}
+                  value={budget.usage_percentage}
+                  valueLabel={`${budget.usage_percentage.toFixed(1)}%`}
+                />
                 <div className="mt-5 space-y-3">
                   {budget.categories.slice(0, 3).map((category) => (
-                    <div key={category.id} className="rounded-xl bg-white/80 px-4 py-3">
+                    <div key={category.id} className="rounded-[22px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.03)] px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="font-medium text-stone-900">{category.category_l1}</p>
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${statusClassName(category.status)}`}>
-                          {statusLabel(category.status)}
-                        </span>
+                        <p className="font-medium text-[var(--text-primary)]">{category.category_l1}</p>
+                        <span className={statusClassName(category.status)}>{statusLabel(category.status)}</span>
                       </div>
-                      <p className="mt-1 text-sm text-stone-500">
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
                         ¥{category.spent.toLocaleString("zh-CN", { minimumFractionDigits: 2 })} / ¥{category.budget.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
                       </p>
                     </div>
@@ -119,7 +132,7 @@ export default function BudgetsPage() {
                 </div>
               </>
             )}
-          </div>
+          </Card>
         </div>
       )}
     </div>
@@ -128,39 +141,23 @@ export default function BudgetsPage() {
 
 function Metric({ title, value, tone }: { title: string; value: number; tone: string }) {
   return (
-    <div className="rounded-xl bg-white/80 px-4 py-3">
-      <p className="text-sm text-stone-500">{title}</p>
-      <p className={`mt-1 text-2xl font-semibold ${tone}`}>
+    <div className="rounded-[22px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.03)] px-4 py-3">
+      <p className="text-sm text-[var(--text-secondary)]">{title}</p>
+      <p className={cx("tabular mt-2 text-2xl font-bold tracking-[-0.03em]", tone)}>
         ¥{value.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}
       </p>
     </div>
   );
 }
 
-function EmptyState() {
-  return (
-    <div className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-16 text-center">
-      <p className="text-4xl">🧾</p>
-      <h2 className="mt-4 text-xl font-semibold text-stone-900">还没有可分析的账期</h2>
-      <p className="mt-2 text-sm text-stone-500">请先导入微信或支付宝账单，系统会自动生成月度预算建议。</p>
-      <Link
-        href="/import"
-        className="mt-6 inline-flex items-center rounded-full bg-amber-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-700"
-      >
-        去导入账单
-      </Link>
-    </div>
-  );
-}
-
 function SkeletonCard() {
-  return <div className="h-24 animate-pulse rounded-xl bg-stone-100" />;
+  return <div className="h-24 animate-pulse rounded-[22px] bg-[rgba(255,255,255,0.04)]" />;
 }
 
 function statusClassName(status: "healthy" | "warning" | "overspent") {
-  if (status === "overspent") return "bg-red-100 text-red-700";
-  if (status === "warning") return "bg-amber-100 text-amber-700";
-  return "bg-emerald-100 text-emerald-700";
+  if (status === "overspent") return "rounded-full bg-rose-400/10 px-2.5 py-1 text-xs font-medium text-rose-300";
+  if (status === "warning") return "rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-300";
+  return "rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-300";
 }
 
 function statusLabel(status: "healthy" | "warning" | "overspent") {

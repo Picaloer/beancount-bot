@@ -26,7 +26,7 @@ def auto_detect(content: str) -> BillParserAdapter:
         if parser.can_parse(content):
             return parser
     raise UnsupportedFormatError(
-        "Cannot identify bill format. Supported: WeChat Pay, Alipay."
+        "Cannot identify bill format. Supported: WeChat Pay, Alipay, China Merchants Bank PDF."
     )
 
 
@@ -36,7 +36,7 @@ def auto_detect_file(file_path: str | Path) -> BillParserAdapter:
         if parser.can_parse_file(path):
             return parser
     raise UnsupportedFormatError(
-        "Cannot identify bill format. Supported: WeChat Pay, Alipay."
+        "Cannot identify bill format. Supported: WeChat Pay, Alipay, China Merchants Bank PDF."
     )
 
 

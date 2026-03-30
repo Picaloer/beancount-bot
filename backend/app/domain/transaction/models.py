@@ -17,6 +17,7 @@ class TransactionDirection(str, Enum):
 class BillSource(str, Enum):
     WECHAT = "wechat"
     ALIPAY = "alipay"
+    CMB = "cmb"
 
 
 class CategorySource(str, Enum):

@@ -19,7 +19,7 @@ class BillParserAdapter(ABC):
     def can_parse_file(self, file_path: Path) -> bool:
         """Auto-detect whether this parser handles the given file."""
         try:
-            return self.can_parse(self._read_text_file(file_path))
+            return any(self.can_parse(content) for content in self._read_text_candidates(file_path))
         except Exception:
             return False
 
@@ -29,10 +29,39 @@ class BillParserAdapter(ABC):
 
     def parse_file(self, file_path: Path) -> list[RawTransaction]:
         """Parse a file into RawTransaction list."""
-        return self.parse(self._read_text_file(file_path))
+        candidates = self._read_text_candidates(file_path)
+        for content in candidates:
+            if self.can_parse(content):
+                return self.parse(content)
+        return self.parse(candidates[0])
 
     def _read_text_file(self, file_path: Path) -> str:
+        return self._read_text_candidates(file_path)[0]
+
+    def _read_text_candidates(self, file_path: Path) -> list[str]:
         raw = file_path.read_bytes()
         detected = chardet.detect(raw)
-        encoding = detected.get("encoding") or "utf-8"
-        return raw.decode(encoding, errors="replace")
+        encodings: list[str] = []
+
+        detected_encoding = detected.get("encoding")
+        if detected_encoding:
+            encodings.append(detected_encoding)
+
+        encodings.extend(["utf-8-sig", "utf-8", "gb18030", "gbk", "utf-16"])
+
+        candidates: list[str] = []
+        seen: set[str] = set()
+        for encoding in encodings:
+            normalized = encoding.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            try:
+                candidates.append(raw.decode(encoding))
+            except Exception:
+                continue
+
+        if not candidates:
+            candidates.append(raw.decode("utf-8", errors="replace"))
+
+        return candidates

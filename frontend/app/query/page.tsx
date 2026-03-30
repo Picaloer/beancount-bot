@@ -2,6 +2,10 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import useSWRMutation from "swr/mutation";
+
+import Card from "@/app/components/Card";
+import EmptyState from "@/app/components/EmptyState";
+import PageHeader from "@/app/components/PageHeader";
 import { askFinanceQuestion, type QueryAnswer } from "@/lib/api";
 
 const EXAMPLES = [
@@ -11,6 +15,12 @@ const EXAMPLES = [
   "这个月花得最多的商家是谁？",
   "2026-03 一共有多少笔交易？",
 ];
+
+const textareaClassName =
+  "min-h-[148px] w-full rounded-2xl border border-[rgba(212,168,67,0.2)] bg-[var(--bg-elevated)] px-4 py-3 text-sm leading-7 text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[var(--gold-400)]";
+
+const primaryButtonClassName =
+  "inline-flex items-center justify-center rounded-xl bg-[var(--gold-400)] px-6 py-2.5 text-sm font-medium text-black transition hover:bg-[var(--gold-500)] disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function QueryPage() {
   const [question, setQuestion] = useState(EXAMPLES[0]);
@@ -62,130 +72,134 @@ export default function QueryPage() {
   }, [latest]);
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-[32px] border border-stone-200 bg-[linear-gradient(145deg,rgba(255,251,245,0.96),rgba(244,236,223,0.92))] p-6 shadow-[0_20px_50px_rgba(97,72,38,0.09)]">
-        <div className="space-y-4">
-          <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">
-            Finance Q&A
-          </span>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-stone-900">自然语言财务查询</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600">
-              直接用中文提问，例如本月总支出、某个分类花了多少钱，或者哪个商家消费最多。当前版本支持高频月度问答，适合作为后续 NLQueryAgent 的第一步落地。
-            </p>
-          </div>
-        </div>
-      </section>
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        eyebrow="Natural Language Ledger"
+        title="自然语言查账"
+        description="像对账助手一样直接发问。输入一句中文，系统会识别账期和意图，再把答案装订成一张暗金答复卡。"
+      />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <section className="rounded-3xl border border-stone-200 bg-white/90 p-6 shadow-[0_18px_40px_rgba(84,62,34,0.06)]">
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <label className="block space-y-2">
-              <span className="text-sm font-medium text-stone-700">输入问题</span>
+        <div className="space-y-6">
+          <Card variant="surface" className="p-6">
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              <div>
+                <h2 className="text-xl font-bold tracking-[-0.02em] text-[var(--text-primary)]">输入问题</h2>
+                <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
+                  支持账期、分类、商家、收入、支出、净收支与交易数问题。
+                </p>
+              </div>
+
               <textarea
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 rows={4}
                 placeholder="例如：上个月餐饮花了多少钱？"
-                className="w-full rounded-2xl border border-stone-300 bg-stone-50/70 px-4 py-3 text-sm leading-6 text-stone-900 outline-none transition-colors focus:border-amber-500"
+                className={textareaClassName}
               />
-            </label>
 
-            <div className="flex flex-wrap gap-2">
-              {EXAMPLES.map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  onClick={() => setQuestion(example)}
-                  className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs font-medium text-stone-600 transition-colors hover:border-amber-300 hover:text-amber-800"
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
+              <div className="flex flex-wrap gap-2">
+                {EXAMPLES.map((example) => (
+                  <button
+                    key={example}
+                    type="button"
+                    onClick={() => setQuestion(example)}
+                    className="rounded-full border border-[rgba(212,168,67,0.15)] bg-[var(--bg-elevated)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition hover:border-[var(--gold-400)] hover:text-[var(--gold-400)]"
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
 
-            <div className="flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={isMutating}
-                className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-800 disabled:opacity-60"
-              >
+              <button type="submit" disabled={isMutating} className={primaryButtonClassName}>
                 {isMutating ? "查询中..." : "开始查询"}
               </button>
-              <p className="text-xs text-stone-400">支持账期、分类、商家、收入、支出、净收支与交易数问题</p>
-            </div>
-          </form>
+            </form>
+          </Card>
 
-          {error && (
-            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error ? (
+            <div className="rounded-[24px] border border-rose-400/20 bg-rose-400/8 px-4 py-3 text-sm text-rose-200">
               {error}
             </div>
-          )}
+          ) : null}
 
-          <div className="mt-6 rounded-3xl border border-stone-200 bg-[linear-gradient(145deg,rgba(250,246,239,0.92),rgba(255,255,255,0.95))] p-5">
-            <div className="flex items-center justify-between gap-3">
+          <Card variant="elevated" className="p-6">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-stone-400">最新回答</p>
-                <h2 className="mt-2 text-lg font-semibold text-stone-900">{latest ? latest.question : "等待你的问题"}</h2>
+                <p className="text-xs uppercase tracking-[0.22em] text-[var(--text-muted)]">Latest Answer</p>
+                <h2 className="mt-3 text-xl font-bold tracking-[-0.02em] text-[var(--text-primary)]">
+                  {latest ? latest.question : "等待你的问题"}
+                </h2>
               </div>
-              {latest && (
-                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
+              {latest ? (
+                <span className="rounded-full bg-[rgba(212,168,67,0.12)] px-3 py-1 text-xs font-medium text-[var(--gold-400)] ring-1 ring-inset ring-[rgba(212,168,67,0.2)]">
                   {intentLabel(latest.intent)}
                 </span>
-              )}
+              ) : null}
             </div>
 
             {latest ? (
               <>
-                <p className="mt-4 text-base leading-8 text-stone-700">{latest.answer}</p>
+                <p className="mt-5 text-lg font-medium leading-9 text-[var(--text-primary)]">{latest.answer}</p>
                 <div className="mt-5 flex flex-wrap gap-2">
                   {insightChips.map((chip) => (
-                    <span key={chip} className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600">
+                    <span
+                      key={chip}
+                      className="rounded-full border border-white/6 bg-[var(--bg-muted)] px-3 py-1 text-xs font-medium text-[var(--text-secondary)]"
+                    >
                       {chip}
                     </span>
                   ))}
                 </div>
               </>
             ) : (
-              <p className="mt-4 text-sm leading-6 text-stone-500">输入问题后，这里会返回账期识别、问答结果和关键数字。</p>
+              <EmptyState
+                className="mt-6"
+                title="答案卡仍是空白页"
+                description="提一个关于金额、分类、商家或交易数量的问题，这里会返回解析结果和关键数字。"
+              />
             )}
-          </div>
-        </section>
+          </Card>
+        </div>
 
-        <aside className="space-y-6 xl:sticky xl:top-24 xl:self-start">
-          <section className="rounded-3xl border border-stone-200 bg-white/90 p-5 shadow-[0_18px_40px_rgba(84,62,34,0.06)]">
-            <h2 className="text-lg font-semibold text-stone-900">支持的问题</h2>
-            <div className="mt-4 space-y-3 text-sm text-stone-600">
+        <aside className="space-y-6 xl:sticky xl:top-8 xl:self-start">
+          <Card variant="surface" className="p-5">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">支持的问题</h2>
+            <div className="mt-4 space-y-3 text-sm leading-7 text-[var(--text-secondary)]">
               <p>总支出 / 总收入 / 净收支</p>
               <p>某个一级分类花了多少钱</p>
               <p>哪个分类支出最多</p>
               <p>哪个商家花得最多</p>
               <p>某月总交易笔数</p>
             </div>
-          </section>
+          </Card>
 
-          <section className="rounded-3xl border border-stone-200 bg-white/90 p-5 shadow-[0_18px_40px_rgba(84,62,34,0.06)]">
-            <h2 className="text-lg font-semibold text-stone-900">最近记录</h2>
+          <Card variant="surface" className="p-5">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">最近记录</h2>
             <div className="mt-4 space-y-3">
               {history.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-400">
-                  还没有查询记录
-                </div>
+                <EmptyState
+                  className="p-6"
+                  title="还没有查询记录"
+                  description="提交第一个问题后，这里会保留最近几次提问，方便再次复用。"
+                />
               ) : (
                 history.map((item) => (
                   <button
                     key={`${item.question}-${item.year_month}`}
                     type="button"
                     onClick={() => setQuestion(item.question)}
-                    className="w-full rounded-2xl border border-stone-200 bg-stone-50/70 p-4 text-left transition-colors hover:border-amber-300"
+                    className="w-full rounded-[22px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 text-left transition hover:border-[rgba(212,168,67,0.24)]"
                   >
-                    <p className="line-clamp-2 text-sm font-medium text-stone-800">{item.question}</p>
-                    <p className="mt-2 text-xs text-stone-500">{item.year_month} · {intentLabel(item.intent)}</p>
+                    <p className="line-clamp-2 text-sm font-medium text-[var(--text-primary)]">{item.question}</p>
+                    <p className="mt-2 text-xs text-[var(--text-muted)]">
+                      {item.year_month} / {intentLabel(item.intent)}
+                    </p>
                   </button>
                 ))
               )}
             </div>
-          </section>
+          </Card>
         </aside>
       </div>
     </div>

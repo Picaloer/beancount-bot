@@ -53,6 +53,7 @@ EXPENSE_ACCOUNTS: dict[tuple[str, str | None], str] = {
 SOURCE_ACCOUNTS: dict[BillSource, str] = {
     BillSource.WECHAT: "Assets:WeChat",
     BillSource.ALIPAY: "Assets:Alipay",
+    BillSource.CMB: "Assets:Bank:CMB",
 }
 
 INCOME_ACCOUNT = "Income:Other"
