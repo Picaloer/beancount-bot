@@ -52,7 +52,12 @@ def process_bill_import(self, import_id: str, file_path: str, user_id: str) -> d
         for raw_tx, tx_id in inserted_transactions:
             result = pipeline.classify(raw_tx)
             repo.update_transaction_category(
-                db, tx_id, result.category_l1, result.category_l2, result.source.value
+                db,
+                tx_id,
+                result.category_l1,
+                result.category_l2,
+                result.source.value,
+                confidence=result.confidence,
             )
 
             # 4. Beancount entry
@@ -127,7 +132,7 @@ def _build_pipeline(db, user_id: str):
         from app.domain.classification.pipeline import ClassificationResult
         from app.domain.transaction.models import CategorySource
 
-        agent = ClassificationAgent(create_llm_client())
+        agent = ClassificationAgent(create_llm_client(), user_rules=user_rules)
         _cache: list = []
 
         def llm_classify_single(tx):

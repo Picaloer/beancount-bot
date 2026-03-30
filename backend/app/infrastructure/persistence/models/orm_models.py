@@ -54,6 +54,7 @@ class TransactionORM(Base):
     category_l1: Mapped[str] = mapped_column(String(50), default="其他")
     category_l2: Mapped[str | None] = mapped_column(String(50), nullable=True)
     category_source: Mapped[str] = mapped_column(String(20), default="fallback")
+    category_confidence: Mapped[float] = mapped_column(NUMERIC(4, 3), default=0)
     transaction_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     raw_data: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -95,6 +96,27 @@ class CategoryRuleORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["UserORM"] = relationship(back_populates="category_rules")
+
+
+class RuleSuggestionORM(Base):
+    __tablename__ = "rule_suggestions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    match_field: Mapped[str] = mapped_column(String(20), nullable=False)
+    match_value: Mapped[str] = mapped_column(String(255), nullable=False)
+    category_l1: Mapped[str] = mapped_column(String(50), nullable=False)
+    category_l2: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    confidence: Mapped[float] = mapped_column(NUMERIC(4, 3), default=0)
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    sample_transactions: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["UserORM"] = relationship()
 
 
 class MonthlyReportORM(Base):
