@@ -19,6 +19,7 @@ const statusStyles: Record<string, string> = {
   done: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
   pending: "bg-amber-400/10 text-amber-300 ring-amber-400/20",
   processing: "bg-sky-400/10 text-sky-300 ring-sky-400/20",
+  reviewing_duplicates: "bg-amber-400/10 text-amber-300 ring-amber-400/20",
   classifying: "bg-sky-400/10 text-sky-300 ring-sky-400/20",
   failed: "bg-rose-400/10 text-rose-300 ring-rose-400/20",
 };
@@ -27,6 +28,7 @@ const statusLabels: Record<string, string> = {
   done: "完成",
   pending: "等待中",
   processing: "处理中",
+  reviewing_duplicates: "等待复核",
   classifying: "分类中",
   failed: "失败",
 };

@@ -18,6 +18,7 @@ from app.infrastructure.persistence.models.orm_models import (
     BillImportORM,
     BudgetPlanORM,
     CategoryRuleORM,
+    DuplicateReviewGroupORM,
     ImportStageORM,
     ImportSummaryORM,
     RuleSuggestionORM,
@@ -106,6 +107,7 @@ def _initialize_import_stages(db: Session, import_id: str) -> None:
     stage_definitions = [
         ("parse", "解析账单"),
         ("dedupe", "识别重复交易"),
+        ("duplicate_review", "复核疑似重复"),
         ("classify", "分类交易"),
         ("beancount", "生成 Beancount 分录"),
     ]
@@ -157,6 +159,9 @@ def _upsert_import_summary(
     *,
     inserted_count: int | None = None,
     duplicate_count: int | None = None,
+    duplicate_review_group_count: int | None = None,
+    duplicate_review_pair_count: int | None = None,
+    duplicate_review_resolved_count: int | None = None,
     beancount_entry_count: int | None = None,
     rule_based_count: int | None = None,
     llm_based_count: int | None = None,
@@ -172,6 +177,12 @@ def _upsert_import_summary(
         summary.inserted_count = inserted_count
     if duplicate_count is not None:
         summary.duplicate_count = duplicate_count
+    if duplicate_review_group_count is not None:
+        summary.duplicate_review_group_count = duplicate_review_group_count
+    if duplicate_review_pair_count is not None:
+        summary.duplicate_review_pair_count = duplicate_review_pair_count
+    if duplicate_review_resolved_count is not None:
+        summary.duplicate_review_resolved_count = duplicate_review_resolved_count
     if beancount_entry_count is not None:
         summary.beancount_entry_count = beancount_entry_count
     if rule_based_count is not None:
@@ -194,6 +205,9 @@ def update_import_summary(
     *,
     inserted_count: int | None = None,
     duplicate_count: int | None = None,
+    duplicate_review_group_count: int | None = None,
+    duplicate_review_pair_count: int | None = None,
+    duplicate_review_resolved_count: int | None = None,
     beancount_entry_count: int | None = None,
     rule_based_count: int | None = None,
     llm_based_count: int | None = None,
@@ -205,6 +219,9 @@ def update_import_summary(
         import_id,
         inserted_count=inserted_count,
         duplicate_count=duplicate_count,
+        duplicate_review_group_count=duplicate_review_group_count,
+        duplicate_review_pair_count=duplicate_review_pair_count,
+        duplicate_review_resolved_count=duplicate_review_resolved_count,
         beancount_entry_count=beancount_entry_count,
         rule_based_count=rule_based_count,
         llm_based_count=llm_based_count,
@@ -229,6 +246,11 @@ def get_import_detail(db: Session, import_id: str, user_id: str) -> dict | None:
         .order_by(ImportStageORM.created_at.asc())
     ).all()
     summary = db.scalar(select(ImportSummaryORM).where(ImportSummaryORM.import_id == import_id))
+    review_groups = db.scalars(
+        select(DuplicateReviewGroupORM)
+        .where(DuplicateReviewGroupORM.import_id == import_id)
+        .order_by(DuplicateReviewGroupORM.created_at.asc())
+    ).all()
 
     return {
         "import_id": imp.id,
@@ -262,32 +284,204 @@ def get_import_detail(db: Session, import_id: str, user_id: str) -> dict | None:
         "summary": {
             "inserted_count": summary.inserted_count if summary else 0,
             "duplicate_count": summary.duplicate_count if summary else 0,
+            "duplicate_review_group_count": summary.duplicate_review_group_count if summary else len(review_groups),
+            "duplicate_review_pair_count": summary.duplicate_review_pair_count if summary else 0,
+            "duplicate_review_resolved_count": summary.duplicate_review_resolved_count if summary else 0,
             "beancount_entry_count": summary.beancount_entry_count if summary else 0,
             "rule_based_count": summary.rule_based_count if summary else 0,
             "llm_based_count": summary.llm_based_count if summary else 0,
             "fallback_count": summary.fallback_count if summary else 0,
             "low_confidence_count": summary.low_confidence_count if summary else 0,
         },
+        "duplicate_review": {
+            "group_count": len(review_groups),
+            "pending_count": sum(1 for group in review_groups if group.review_status == "pending"),
+            "resolved_count": sum(1 for group in review_groups if group.review_status != "pending"),
+            "groups": [
+                {
+                    "group_id": group.id,
+                    "review_status": group.review_status,
+                    "review_reason": group.review_reason,
+                    "ai_suggestion": group.ai_suggestion,
+                    "ai_confidence": float(group.ai_confidence) if group.ai_confidence is not None else None,
+                    "ai_reason": group.ai_reason,
+                    "candidate_date": group.candidate_date,
+                    "candidate_amount": float(group.candidate_amount),
+                    "candidate_currency": group.candidate_currency,
+                    "transaction_count": group.transaction_count,
+                    "resolved_at": isoformat_beijing(group.resolved_at) if group.resolved_at else None,
+                    "transactions": [
+                        {
+                            "transaction_id": tx.id,
+                            "source": tx.source,
+                            "merchant": tx.merchant,
+                            "description": tx.description,
+                            "amount": float(tx.amount),
+                            "currency": tx.currency,
+                            "transaction_at": isoformat_beijing(tx.transaction_at),
+                            "duplicate_review_status": tx.duplicate_review_status,
+                        }
+                        for tx in sorted(group.transactions, key=lambda item: item.transaction_at)
+                    ],
+                }
+                for group in review_groups
+            ],
+        },
     }
 
 
-def increment_import_usage(
+def create_duplicate_review_groups(
     db: Session,
     import_id: str,
-    *,
-    processed_rows: int = 0,
-    llm_completed_batches: int = 0,
-    input_tokens: int = 0,
-    output_tokens: int = 0,
-) -> None:
-    imp = db.get(BillImportORM, import_id)
-    if not imp:
-        return
-    imp.processed_rows += processed_rows
-    imp.llm_completed_batches += llm_completed_batches
-    imp.input_tokens += input_tokens
-    imp.output_tokens += output_tokens
+    user_id: str,
+) -> list[DuplicateReviewGroupORM]:
+    candidate_transactions = db.scalars(
+        select(TransactionORM)
+        .where(
+            TransactionORM.import_id == import_id,
+            TransactionORM.user_id == user_id,
+        )
+        .order_by(TransactionORM.transaction_at.asc(), TransactionORM.created_at.asc())
+    ).all()
+
+    grouped: dict[tuple[str, float, str], list[TransactionORM]] = {}
+    for tx in candidate_transactions:
+        candidate_date = tx.transaction_at.strftime("%Y-%m-%d")
+        key = (candidate_date, float(tx.amount), tx.currency)
+        grouped.setdefault(key, []).append(tx)
+
+    created_groups: list[DuplicateReviewGroupORM] = []
+    for (candidate_date, amount, currency), txs in grouped.items():
+        sources = {tx.source for tx in txs}
+        if len(txs) < 2 or len(sources) < 2:
+            continue
+
+        group = DuplicateReviewGroupORM(
+            id=str(uuid4()),
+            import_id=import_id,
+            user_id=user_id,
+            review_status="pending",
+            review_reason="跨账单来源且同日同金额，需人工确认是否为同一笔交易。",
+            ai_suggestion="needs_review",
+            ai_confidence=None,
+            ai_reason="当前仅按跨来源同日同金额进行初筛，待接入 AI 细化判断。",
+            candidate_date=candidate_date,
+            candidate_amount=amount,
+            candidate_currency=currency,
+            transaction_count=len(txs),
+        )
+        db.add(group)
+        created_groups.append(group)
+
+        for tx in txs:
+            tx.duplicate_review_status = "pending"
+            tx.duplicate_review_group_id = group.id
+
+    for tx in candidate_transactions:
+        if tx.duplicate_review_group_id is None and tx.duplicate_review_status == "not_needed":
+            tx.duplicate_review_status = "not_needed"
+
     db.commit()
+
+    pair_count = sum(max(group.transaction_count - 1, 0) for group in created_groups)
+    update_import_summary(
+        db,
+        import_id,
+        duplicate_review_group_count=len(created_groups),
+        duplicate_review_pair_count=pair_count,
+        duplicate_review_resolved_count=0,
+    )
+    return created_groups
+
+
+def has_pending_duplicate_reviews(db: Session, import_id: str) -> bool:
+    return db.scalar(
+        select(func.count())
+        .select_from(DuplicateReviewGroupORM)
+        .where(
+            DuplicateReviewGroupORM.import_id == import_id,
+            DuplicateReviewGroupORM.review_status == "pending",
+        )
+    ) > 0
+
+
+def get_duplicate_review_group(
+    db: Session,
+    import_id: str,
+    group_id: str,
+    user_id: str,
+) -> DuplicateReviewGroupORM | None:
+    return db.scalar(
+        select(DuplicateReviewGroupORM).where(
+            DuplicateReviewGroupORM.id == group_id,
+            DuplicateReviewGroupORM.import_id == import_id,
+            DuplicateReviewGroupORM.user_id == user_id,
+        )
+    )
+
+
+def resolve_duplicate_review_group(
+    db: Session,
+    import_id: str,
+    group_id: str,
+    user_id: str,
+    kept_transaction_id: str,
+    review_reason: str | None = None,
+) -> DuplicateReviewGroupORM:
+    group = get_duplicate_review_group(db, import_id, group_id, user_id)
+    if group is None:
+        raise ValueError("Duplicate review group not found")
+    if group.review_status != "pending":
+        raise ValueError("Duplicate review group is not pending")
+
+    transactions = sorted(group.transactions, key=lambda item: (item.transaction_at, item.created_at, item.id))
+    if len(transactions) < 2:
+        raise ValueError("Duplicate review group must contain at least two transactions")
+
+    kept = next((tx for tx in transactions if tx.id == kept_transaction_id), None)
+    if kept is None:
+        raise ValueError("Selected transaction does not belong to this duplicate review group")
+
+    resolved_at = now_beijing()
+    for tx in transactions:
+        tx.duplicate_review_status = "kept" if tx.id == kept_transaction_id else "removed"
+
+    group.review_status = "resolved"
+    group.review_reason = review_reason or f"保留交易 {kept_transaction_id}，其余候选交易标记为重复并移除。"
+    group.resolved_at = resolved_at
+    db.commit()
+    db.refresh(group)
+    return group
+
+
+def list_import_transactions_for_classification(
+    db: Session,
+    import_id: str,
+    user_id: str,
+) -> list[TransactionORM]:
+    return db.scalars(
+        select(TransactionORM)
+        .where(
+            TransactionORM.import_id == import_id,
+            TransactionORM.user_id == user_id,
+            TransactionORM.duplicate_review_status != "removed",
+        )
+        .order_by(TransactionORM.transaction_at.asc(), TransactionORM.created_at.asc())
+    ).all()
+
+
+def mark_import_ready_for_classification(db: Session, import_id: str) -> None:
+    review_groups = db.scalars(
+        select(DuplicateReviewGroupORM).where(DuplicateReviewGroupORM.import_id == import_id)
+    ).all()
+    resolved_count = sum(1 for group in review_groups if group.review_status != "pending")
+    update_import_summary(
+        db,
+        import_id,
+        duplicate_review_group_count=len(review_groups),
+        duplicate_review_pair_count=sum(max(group.transaction_count - 1, 0) for group in review_groups),
+        duplicate_review_resolved_count=resolved_count,
+    )
 
 
 def get_runtime_settings(db: Session, user_id: str) -> RuntimeSettingORM | None:

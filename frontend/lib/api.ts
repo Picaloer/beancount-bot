@@ -1,12 +1,18 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
-export type ImportLifecycleStatus = "pending" | "processing" | "classifying" | "done" | "failed";
+export type ImportLifecycleStatus = "pending" | "processing" | "reviewing_duplicates" | "classifying" | "done" | "failed";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+  } catch {
+    throw new Error("无法连接到后端服务，请确认 API 服务已启动");
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Request failed");
@@ -18,9 +24,20 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export function importBill(file: File) {
   const form = new FormData();
   form.append("file", file);
-  return fetch(`${API_BASE}/bills/import`, { method: "POST", body: form }).then(
-    (r) => r.json()
-  );
+  return fetch(`${API_BASE}/bills/import`, { method: "POST", body: form })
+    .then(async (r) => {
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ detail: r.statusText }));
+        throw new Error(err.detail || "Request failed");
+      }
+      return r.json();
+    })
+    .catch((error: unknown) => {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error("无法连接到后端服务，请确认 API 服务已启动");
+    });
 }
 
 export function getImportStatus(importId: string) {
@@ -37,6 +54,20 @@ export function listImports() {
 
 export function deleteImport(importId: string) {
   return request<DeleteImportResult>(`/bills/import/${importId}`, { method: "DELETE" });
+}
+
+export function resolveDuplicateReviewGroup(
+  importId: string,
+  groupId: string,
+  payload: ResolveDuplicateReviewGroupInput
+) {
+  return request<ResolveDuplicateReviewGroupResult>(
+    `/bills/import/${importId}/duplicate-review/${groupId}/resolve`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
 }
 
 // Settings
@@ -167,7 +198,7 @@ export interface ImportStatus {
 }
 
 export interface ImportStage {
-  stage_key: "parse" | "dedupe" | "classify" | "beancount" | string;
+  stage_key: "parse" | "dedupe" | "duplicate_review" | "classify" | "beancount" | string;
   stage_label: string;
   status: "pending" | "processing" | "done" | "failed" | string;
   message: string | null;
@@ -178,6 +209,9 @@ export interface ImportStage {
 export interface ImportSummary {
   inserted_count: number;
   duplicate_count: number;
+  duplicate_review_group_count: number;
+  duplicate_review_pair_count: number;
+  duplicate_review_resolved_count: number;
   beancount_entry_count: number;
   rule_based_count: number;
   llm_based_count: number;
@@ -185,15 +219,59 @@ export interface ImportSummary {
   low_confidence_count: number;
 }
 
+export interface DuplicateReviewTransaction {
+  transaction_id: string;
+  source: string;
+  merchant: string;
+  description: string;
+  amount: number;
+  currency: string;
+  transaction_at: string;
+  duplicate_review_status: string;
+}
+
+export interface DuplicateReviewGroup {
+  group_id: string;
+  review_status: string;
+  review_reason: string | null;
+  ai_suggestion: string | null;
+  ai_confidence: number | null;
+  ai_reason: string | null;
+  candidate_date: string;
+  candidate_amount: number;
+  candidate_currency: string;
+  transaction_count: number;
+  resolved_at: string | null;
+  transactions: DuplicateReviewTransaction[];
+}
+
+export interface DuplicateReviewDetail {
+  group_count: number;
+  pending_count: number;
+  resolved_count: number;
+  groups: DuplicateReviewGroup[];
+}
+
 export interface ImportDetail extends ImportStatus {
   stages: ImportStage[];
   summary: ImportSummary;
+  duplicate_review: DuplicateReviewDetail;
 }
 
 export interface DeleteImportResult {
   import_id: string;
   deleted_transactions: number;
   affected_months: string[];
+}
+
+export interface ResolveDuplicateReviewGroupInput {
+  kept_transaction_id: string;
+  review_reason?: string;
+}
+
+export interface ResolveDuplicateReviewGroupResult {
+  group_id: string;
+  review_status: string;
 }
 
 export type ImportRecord = ImportStatus;
@@ -212,7 +290,7 @@ export interface RuntimeSettings {
   effective_model: string;
 }
 
-export interface RuntimeSettingsUpdateResult extends RuntimeSettings {}
+export type RuntimeSettingsUpdateResult = RuntimeSettings;
 
 export interface RuntimeSettingsUpdateInput {
   llm_provider: "claude" | "deepseek";
