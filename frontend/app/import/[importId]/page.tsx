@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 
@@ -9,7 +9,14 @@ import Card, { cx } from "@/app/components/Card";
 import EmptyState from "@/app/components/EmptyState";
 import PageHeader from "@/app/components/PageHeader";
 import ProgressBar from "@/app/components/ProgressBar";
-import { getImportDetail, type ImportDetail, type ImportLifecycleStatus, type ImportStage } from "@/lib/api";
+import {
+  getImportDetail,
+  resolveDuplicateReviewGroup,
+  type DuplicateReviewGroup,
+  type ImportDetail,
+  type ImportLifecycleStatus,
+  type ImportStage,
+} from "@/lib/api";
 
 const primaryButtonClassName =
   "inline-flex items-center justify-center rounded-xl bg-[var(--gold-400)] px-4 py-2.5 text-sm font-medium text-black transition hover:bg-[var(--gold-500)] disabled:cursor-not-allowed disabled:opacity-60";
@@ -23,9 +30,53 @@ export default function ImportDetailPage({
   params: Promise<{ importId: string }>;
 }) {
   const { importId } = use(params);
-  const { data, error } = useSWR<ImportDetail>(["import-detail", importId], () => getImportDetail(importId), {
+  const [reviewingGroupId, setReviewingGroupId] = useState<string | null>(null);
+  const [selectedTransactions, setSelectedTransactions] = useState<Record<string, string>>({});
+  const [reviewMessages, setReviewMessages] = useState<Record<string, string>>({});
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null);
+  const { data, error, mutate } = useSWR<ImportDetail>(["import-detail", importId], () => getImportDetail(importId), {
     refreshInterval: (detail) => (detail && isTerminalStatus(detail.status) ? 0 : 2000),
   });
+
+  const pendingGroupIds = useMemo(
+    () => data?.duplicate_review.groups.filter((group) => group.review_status === "pending").map((group) => group.group_id) ?? [],
+    [data]
+  );
+
+  async function handleResolveGroup(group: DuplicateReviewGroup) {
+    const keptTransactionId = selectedTransactions[group.group_id] ?? group.transactions[0]?.transaction_id;
+    if (!keptTransactionId) {
+      setReviewError("当前分组缺少可保留的候选交易");
+      return;
+    }
+
+    setReviewError(null);
+    setReviewNotice(null);
+    setReviewingGroupId(group.group_id);
+    try {
+      await resolveDuplicateReviewGroup(importId, group.group_id, {
+        kept_transaction_id: keptTransactionId,
+        review_reason: reviewMessages[group.group_id]?.trim() || undefined,
+      });
+      const remainingPendingCount = Math.max(pendingGroupIds.length - 1, 0);
+      setReviewNotice(
+        remainingPendingCount > 0
+          ? `已完成 1 组复核，仍有 ${remainingPendingCount} 组待确认。`
+          : "已完成最后一组复核，系统正在继续分类与生成分录。"
+      );
+      setReviewMessages((current) => {
+        const next = { ...current };
+        delete next[group.group_id];
+        return next;
+      });
+      await mutate();
+    } catch (e: unknown) {
+      setReviewError(e instanceof Error ? e.message : "提交复核结果失败");
+    } finally {
+      setReviewingGroupId(null);
+    }
+  }
 
   if (error) {
     return (
@@ -213,6 +264,66 @@ export default function ImportDetailPage({
               })}
             </div>
           </Card>
+
+          <Card variant="surface" className="p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold tracking-[-0.02em] text-[var(--text-primary)]">疑似重复分组</h2>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  展示本次导入中跨来源且同日同金额的候选交易，便于后续人工确认。
+                </p>
+              </div>
+              <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-[var(--text-muted)]">
+                {data.duplicate_review.group_count} 组
+              </span>
+            </div>
+
+            {reviewError ? (
+              <div className="mt-6 rounded-[22px] border border-rose-400/20 bg-rose-400/8 px-4 py-4 text-sm leading-7 text-rose-200">
+                {reviewError}
+              </div>
+            ) : null}
+
+            {reviewNotice ? (
+              <div className="mt-4 rounded-[22px] border border-emerald-400/20 bg-emerald-400/8 px-4 py-4 text-sm leading-7 text-emerald-100">
+                {reviewNotice}
+              </div>
+            ) : null}
+
+            {data.duplicate_review.groups.length === 0 ? (
+              <div className="mt-6">
+                <EmptyState
+                  title="没有待复核分组"
+                  description="系统没有发现需要人工确认的跨来源疑似重复交易。"
+                />
+              </div>
+            ) : (
+              <div className="mt-6 space-y-4">
+                {data.duplicate_review.groups.map((group) => (
+                  <DuplicateReviewGroupCard
+                    key={group.group_id}
+                    group={group}
+                    reviewing={reviewingGroupId === group.group_id}
+                    selectedTransactionId={selectedTransactions[group.group_id] ?? group.transactions[0]?.transaction_id ?? null}
+                    reviewMessage={reviewMessages[group.group_id] ?? ""}
+                    onSelectTransaction={(transactionId) => {
+                      setSelectedTransactions((current) => ({
+                        ...current,
+                        [group.group_id]: transactionId,
+                      }));
+                    }}
+                    onReviewMessageChange={(message) => {
+                      setReviewMessages((current) => ({
+                        ...current,
+                        [group.group_id]: message,
+                      }));
+                    }}
+                    onResolve={() => void handleResolveGroup(group)}
+                  />
+                ))}
+              </div>
+            )}
+          </Card>
         </section>
 
         <aside className="space-y-4 xl:sticky xl:top-8 xl:self-start">
@@ -222,12 +333,34 @@ export default function ImportDetailPage({
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
               <SummaryMetric label="新增交易" value={data.summary.inserted_count} tone="gold" />
               <SummaryMetric label="识别重复" value={data.summary.duplicate_count} tone="info" />
+              <SummaryMetric label="待复核分组" value={data.summary.duplicate_review_group_count} tone="warning" />
+              <SummaryMetric label="待复核配对" value={data.summary.duplicate_review_pair_count} tone="warning" />
+              <SummaryMetric label="已完成复核" value={data.summary.duplicate_review_resolved_count} tone="healthy" />
               <SummaryMetric label="Beancount 分录" value={data.summary.beancount_entry_count} tone="healthy" />
               <SummaryMetric label="规则分类" value={data.summary.rule_based_count} tone="healthy" />
               <SummaryMetric label="AI 分类" value={data.summary.llm_based_count} tone="gold" />
               <SummaryMetric label="兜底分类" value={data.summary.fallback_count} tone="warning" />
               <SummaryMetric label="低置信度" value={data.summary.low_confidence_count} tone="overspent" />
             </div>
+          </Card>
+
+          <Card variant="surface" className="p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Duplicate Review</p>
+            <h2 className="mt-4 text-xl font-bold tracking-[-0.02em] text-[var(--text-primary)]">疑似重复复核</h2>
+            <div className="mt-5 grid gap-3">
+              <MetricChip label="分组数量" value={formatNumber(data.duplicate_review.group_count)} />
+              <MetricChip label="待处理" value={formatNumber(data.duplicate_review.pending_count)} />
+              <MetricChip label="已处理" value={formatNumber(data.duplicate_review.resolved_count)} />
+            </div>
+            {data.duplicate_review.pending_count > 0 ? (
+              <div className="mt-4 rounded-[22px] border border-amber-400/20 bg-amber-400/8 px-4 py-4 text-sm leading-7 text-amber-100">
+                当前导入已暂停，等待人工确认这些跨来源且同日同金额的疑似重复交易。
+              </div>
+            ) : data.duplicate_review.group_count === 0 ? (
+              <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">
+                这次导入没有发现需要人工复核的跨来源疑似重复交易。
+              </p>
+            ) : null}
           </Card>
 
           <Card variant="surface" className="p-5">
@@ -324,6 +457,141 @@ function MetricChip({ label, value }: { label: string; value: string }) {
   );
 }
 
+function DuplicateReviewGroupCard({
+  group,
+  reviewing,
+  selectedTransactionId,
+  reviewMessage,
+  onSelectTransaction,
+  onReviewMessageChange,
+  onResolve,
+}: {
+  group: DuplicateReviewGroup;
+  reviewing: boolean;
+  selectedTransactionId: string | null;
+  reviewMessage: string;
+  onSelectTransaction: (transactionId: string) => void;
+  onReviewMessageChange: (message: string) => void;
+  onResolve: () => void;
+}) {
+  const pending = group.review_status === "pending";
+
+  return (
+    <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.03)] p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-base font-semibold text-[var(--text-primary)]">
+              {group.candidate_date} / {formatCurrency(group.candidate_amount, group.candidate_currency)}
+            </p>
+            <span className={cx("rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset", reviewStatusTone(group.review_status))}>
+              {reviewStatusLabel(group.review_status)}
+            </span>
+            {group.ai_suggestion ? (
+              <span className="rounded-full bg-[rgba(212,168,67,0.1)] px-2.5 py-1 text-xs font-medium text-[var(--gold-400)] ring-1 ring-inset ring-[rgba(212,168,67,0.22)]">
+                AI: {group.ai_suggestion}
+                {group.ai_confidence !== null ? ` · ${Math.round(group.ai_confidence * 100)}%` : ""}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">{group.review_reason || "等待人工确认该组候选交易。"}</p>
+          {group.ai_reason ? (
+            <p className="mt-2 text-sm leading-7 text-[var(--text-muted)]">{group.ai_reason}</p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-2 text-sm text-[var(--text-muted)] lg:min-w-[180px] lg:text-right">
+          <span>候选交易：{formatNumber(group.transaction_count)} 条</span>
+          <span>已处理时间：{group.resolved_at ? formatImportTime(group.resolved_at) : "—"}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        {group.transactions.map((transaction) => {
+          const selected = selectedTransactionId === transaction.transaction_id;
+
+          return (
+            <label
+              key={transaction.transaction_id}
+              className={cx(
+                "block rounded-[20px] border bg-[var(--bg-elevated)] px-4 py-4 transition",
+                pending
+                  ? selected
+                    ? "border-[rgba(212,168,67,0.32)] ring-1 ring-[rgba(212,168,67,0.18)]"
+                    : "border-[var(--border-subtle)] hover:border-[rgba(212,168,67,0.2)]"
+                  : "border-[var(--border-subtle)]"
+              )}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {pending ? (
+                      <input
+                        type="radio"
+                        name={`duplicate-review-${group.group_id}`}
+                        value={transaction.transaction_id}
+                        checked={selected}
+                        onChange={() => onSelectTransaction(transaction.transaction_id)}
+                        disabled={reviewing}
+                        className="h-4 w-4 border-[var(--border-subtle)] bg-[var(--bg-muted)] text-[var(--gold-400)] focus:ring-[var(--gold-400)]"
+                      />
+                    ) : null}
+                    <SourceBadge source={transaction.source} />
+                    <span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-[var(--text-muted)]">
+                      {reviewStatusLabel(transaction.duplicate_review_status)}
+                    </span>
+                    {pending && selected ? (
+                      <span className="rounded-full bg-[rgba(212,168,67,0.1)] px-2.5 py-1 text-xs font-medium text-[var(--gold-400)] ring-1 ring-inset ring-[rgba(212,168,67,0.22)]">
+                        保留此条
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-3 text-sm font-medium text-[var(--text-primary)]">{transaction.merchant || "未识别商户"}</p>
+                  <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">{transaction.description || "—"}</p>
+                </div>
+
+                <div className="grid gap-2 text-sm text-[var(--text-muted)] sm:min-w-[180px] sm:text-right">
+                  <span className="tabular text-base font-semibold text-[var(--text-primary)]">
+                    {formatCurrency(transaction.amount, transaction.currency)}
+                  </span>
+                  <span>{formatImportTime(transaction.transaction_at)}</span>
+                </div>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+
+      {pending ? (
+        <div className="mt-4 rounded-[22px] border border-[rgba(212,168,67,0.16)] bg-[rgba(212,168,67,0.05)] p-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div>
+              <label className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">复核说明（可选）</label>
+              <textarea
+                value={reviewMessage}
+                onChange={(event) => onReviewMessageChange(event.target.value)}
+                placeholder="例如：保留微信账单记录，支付宝为重复同步账单"
+                disabled={reviewing}
+                rows={3}
+                className="mt-2 w-full rounded-[18px] border border-[rgba(212,168,67,0.18)] bg-[var(--bg-muted)] px-4 py-3 text-sm leading-7 text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[var(--gold-400)]"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={onResolve}
+              disabled={reviewing || !selectedTransactionId}
+              className={primaryButtonClassName}
+            >
+              {reviewing ? "提交中..." : "确认保留并继续"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function getCurrentActiveStage(stages: ImportStage[]) {
   return (
     stages.find((stage) => stage.status === "processing") ??
@@ -339,12 +607,13 @@ function getImportProgressValue(status: ImportDetail) {
   if (status.status === "done") return 100;
   if (status.status === "failed") return Math.max(8, Math.min(96, denominator > 0 ? (status.processed_rows / denominator) * 100 : 12));
   if (status.status === "pending") return 6;
-  if (status.status === "processing") return denominator > 0 ? Math.min(35, (status.processed_rows / denominator) * 20 + 18) : 18;
+  if (status.status === "processing") return denominator > 0 ? Math.min(32, (status.processed_rows / denominator) * 18 + 14) : 18;
+  if (status.status === "reviewing_duplicates") return 52;
   if (status.status === "classifying") {
     if (status.llm_total_batches > 0) {
-      return Math.min(88, 35 + (status.llm_completed_batches / status.llm_total_batches) * 45);
+      return Math.min(88, 52 + (status.llm_completed_batches / status.llm_total_batches) * 36);
     }
-    return denominator > 0 ? Math.min(88, 35 + (status.processed_rows / denominator) * 45) : 55;
+    return denominator > 0 ? Math.min(88, 52 + (status.processed_rows / denominator) * 36) : 64;
   }
   return 0;
 }
@@ -367,6 +636,13 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN").format(value);
 }
 
+function formatCurrency(amount: number, currency: string) {
+  return `${currency} ${new Intl.NumberFormat("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)}`;
+}
+
 function sourceLabel(source: string) {
   return {
     wechat: "微信支付",
@@ -381,13 +657,34 @@ function stageStatusLabel(status: string) {
     processing: "处理中",
     done: "已完成",
     failed: "失败",
+  }[status] ?? (status === "reviewing_duplicates" ? "等待复核" : status);
+}
+
+function reviewStatusLabel(status: string) {
+  return {
+    pending: "待确认",
+    kept: "保留",
+    removed: "移除",
+    resolved: "已处理",
+    not_needed: "无需复核",
   }[status] ?? status;
+}
+
+function reviewStatusTone(status: string) {
+  return {
+    pending: "bg-amber-400/10 text-amber-300 ring-amber-400/20",
+    kept: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/20",
+    removed: "bg-rose-400/10 text-rose-300 ring-rose-400/20",
+    resolved: "bg-sky-400/10 text-sky-300 ring-sky-400/20",
+    not_needed: "bg-white/5 text-[var(--text-secondary)] ring-white/10",
+  }[status] ?? "bg-white/5 text-[var(--text-secondary)] ring-white/10";
 }
 
 function defaultStageMessage(stage: ImportStage) {
   return {
     parse: "等待开始解析账单文件。",
     dedupe: "等待识别重复交易与入库。",
+    duplicate_review: "等待复核跨来源疑似重复交易。",
     classify: "等待规则与 AI 分类。",
     beancount: "等待生成 Beancount 分录。",
   }[stage.stage_key] ?? "等待阶段消息。";

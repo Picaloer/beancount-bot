@@ -19,6 +19,7 @@ class UserORM(Base):
     transactions: Mapped[list["TransactionORM"]] = relationship(back_populates="user")
     category_rules: Mapped[list["CategoryRuleORM"]] = relationship(back_populates="user")
     budget_plans: Mapped[list["BudgetPlanORM"]] = relationship(back_populates="user")
+    duplicate_review_groups: Mapped[list["DuplicateReviewGroupORM"]] = relationship(back_populates="user")
 
 
 class BillImportORM(Base):
@@ -35,7 +36,7 @@ class BillImportORM(Base):
     llm_completed_batches: Mapped[int] = mapped_column(Integer, default=0)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(20), default="pending")
+    status: Mapped[str] = mapped_column(String(32), default="pending")
     stage_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     imported_at: Mapped[datetime] = mapped_column(DateTime, default=now_beijing)
@@ -46,6 +47,7 @@ class BillImportORM(Base):
     transactions: Mapped[list["TransactionORM"]] = relationship(back_populates="bill_import")
     stages: Mapped[list["ImportStageORM"]] = relationship(back_populates="bill_import")
     summary: Mapped["ImportSummaryORM | None"] = relationship(back_populates="bill_import", uselist=False)
+    duplicate_review_groups: Mapped[list["DuplicateReviewGroupORM"]] = relationship(back_populates="bill_import")
 
 
 class ImportStageORM(Base):
@@ -74,6 +76,9 @@ class ImportSummaryORM(Base):
     import_id: Mapped[str] = mapped_column(String(36), ForeignKey("bill_imports.id"), nullable=False, unique=True)
     inserted_count: Mapped[int] = mapped_column(Integer, default=0)
     duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate_review_group_count: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate_review_pair_count: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate_review_resolved_count: Mapped[int] = mapped_column(Integer, default=0)
     beancount_entry_count: Mapped[int] = mapped_column(Integer, default=0)
     rule_based_count: Mapped[int] = mapped_column(Integer, default=0)
     llm_based_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -125,6 +130,8 @@ class TransactionORM(Base):
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     dedupe_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     raw_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    duplicate_review_status: Mapped[str] = mapped_column(String(20), default="not_needed")
+    duplicate_review_group_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("duplicate_review_groups.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_beijing)
 
     user: Mapped["UserORM"] = relationship(back_populates="transactions")
@@ -132,6 +139,31 @@ class TransactionORM(Base):
     beancount_entry: Mapped["BeancountEntryORM | None"] = relationship(
         back_populates="transaction", uselist=False
     )
+    duplicate_review_group: Mapped["DuplicateReviewGroupORM | None"] = relationship(back_populates="transactions")
+
+
+class DuplicateReviewGroupORM(Base):
+    __tablename__ = "duplicate_review_groups"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    import_id: Mapped[str] = mapped_column(String(36), ForeignKey("bill_imports.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    review_status: Mapped[str] = mapped_column(String(20), default="pending")
+    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_suggestion: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ai_confidence: Mapped[float | None] = mapped_column(NUMERIC(4, 3), nullable=True)
+    ai_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    candidate_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    candidate_amount: Mapped[float] = mapped_column(NUMERIC(12, 2), nullable=False)
+    candidate_currency: Mapped[str] = mapped_column(String(10), default="CNY")
+    transaction_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_beijing)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_beijing, onupdate=now_beijing)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    bill_import: Mapped["BillImportORM"] = relationship(back_populates="duplicate_review_groups")
+    user: Mapped["UserORM"] = relationship(back_populates="duplicate_review_groups")
+    transactions: Mapped[list["TransactionORM"]] = relationship(back_populates="duplicate_review_group")
 
 
 class BeancountEntryORM(Base):

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.application import import_service
@@ -8,6 +9,11 @@ from app.core.timezone import isoformat_beijing
 from app.infrastructure.persistence.database import get_db
 
 router = APIRouter(prefix="/bills", tags=["bills"])
+
+
+class DuplicateReviewDecisionRequest(BaseModel):
+    kept_transaction_id: str
+    review_reason: str | None = None
 
 
 @router.post("/import")
@@ -49,6 +55,30 @@ def get_import_detail(import_id: str, db: Session = Depends(get_db)):
     if not detail:
         raise HTTPException(status_code=404, detail="Import not found")
     return detail
+
+
+@router.post("/import/{import_id}/duplicate-review/{group_id}/resolve")
+def resolve_duplicate_review_group(
+    import_id: str,
+    group_id: str,
+    body: DuplicateReviewDecisionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return import_service.resolve_duplicate_review_group(
+            db,
+            import_id,
+            group_id,
+            settings.default_user_id,
+            body.kept_transaction_id,
+            body.review_reason,
+        )
+    except ImportNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        if "not found" in str(e):
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.delete("/import/{import_id}")

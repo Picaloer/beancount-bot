@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.exceptions import ImportNotFoundError, ParseError, UnsupportedFormatError
 from app.infrastructure.parsers import registry as parser_registry
 from app.infrastructure.persistence.repositories import transaction_repo as repo
+from app.infrastructure.queue.import_tasks import resume_import_after_duplicate_review
 
 
 def submit_import(db: Session, file_content: bytes, file_name: str, user_id: str) -> dict:
@@ -54,6 +55,47 @@ def submit_import(db: Session, file_content: bytes, file_name: str, user_id: str
 def get_import_status(db: Session, import_id: str, user_id: str) -> dict | None:
     return repo.get_import_detail(db, import_id, user_id)
 
+
+def resolve_duplicate_review_group(
+    db: Session,
+    import_id: str,
+    group_id: str,
+    user_id: str,
+    kept_transaction_id: str,
+    review_reason: str | None = None,
+) -> dict:
+    detail = repo.get_import_detail(db, import_id, user_id)
+    if not detail:
+        raise ImportNotFoundError(f"Import {import_id} not found")
+    if detail["status"] != "reviewing_duplicates":
+        raise ValueError("Import is not waiting for duplicate review")
+
+    group = repo.resolve_duplicate_review_group(
+        db,
+        import_id,
+        group_id,
+        user_id,
+        kept_transaction_id,
+        review_reason,
+    )
+    repo.mark_import_ready_for_classification(db, import_id)
+
+    if repo.has_pending_duplicate_reviews(db, import_id):
+        pending_detail = repo.get_import_detail(db, import_id, user_id)
+        pending_count = pending_detail["duplicate_review"]["pending_count"] if pending_detail else 0
+        repo.update_import_status(
+            db,
+            import_id,
+            status="reviewing_duplicates",
+            stage_message=f"仍有 {pending_count} 组疑似重复交易待确认",
+        )
+    else:
+        resume_import_after_duplicate_review(import_id, user_id)
+
+    return {
+        "group_id": group.id,
+        "review_status": group.review_status,
+    }
 
 
 def delete_import(db: Session, import_id: str, user_id: str) -> dict:

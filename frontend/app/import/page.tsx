@@ -62,7 +62,11 @@ export default function ImportPage() {
       const result = await importBill(file);
       if (result.import_id) {
         setImportId(result.import_id);
-        setNotice("账单已收入账册，系统正在后台解析并分类。 ");
+        setNotice(
+          result.status === "reviewing_duplicates"
+            ? "账单已完成解析，发现跨来源疑似重复交易，请前往详情页确认后继续后续分类。"
+            : "账单已收入账册，系统正在后台解析并分类。"
+        );
         void mutateImports();
       } else {
         setError(result.detail || "上传失败");
@@ -239,7 +243,7 @@ export default function ImportPage() {
 
                       <div className="flex flex-wrap items-center gap-3">
                         <Link href={`/import/${record.import_id}`} className={secondaryButtonClassName}>
-                          查看详情
+                          {record.status === "reviewing_duplicates" ? "前往复核" : "查看详情"}
                         </Link>
                         {record.status === "done" ? (
                           <Link href="/transactions" className={secondaryButtonClassName}>
@@ -297,15 +301,17 @@ export default function ImportPage() {
 function ImportProgress({ status }: { status: ImportStatus }) {
   const isDone = status.status === "done";
   const isFailed = status.status === "failed";
+  const isReviewingDuplicates = status.status === "reviewing_duplicates";
   const progress = getImportProgressValue(status);
 
   const steps = [
     { key: "pending", label: "等待处理" },
-    { key: "processing", label: "解析账单" },
+    { key: "processing", label: "解析与去重" },
+    { key: "reviewing_duplicates", label: "复核疑似重复" },
     { key: "classifying", label: "AI 分类" },
     { key: "done", label: "完成" },
   ] as const;
-  const stepOrder = ["pending", "processing", "classifying", "done"] as const;
+  const stepOrder = ["pending", "processing", "reviewing_duplicates", "classifying", "done"] as const;
   const currentIdx = stepOrder.indexOf(status.status as (typeof stepOrder)[number]);
 
   return (
@@ -326,11 +332,18 @@ function ImportProgress({ status }: { status: ImportStatus }) {
           ) : null}
         </div>
 
-        {isDone ? (
-          <Link href="/transactions" className={primaryButtonClassName}>
-            查看交易
-          </Link>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-3">
+          {isReviewingDuplicates ? (
+            <Link href={`/import/${status.import_id}`} className={secondaryButtonClassName}>
+              前往复核
+            </Link>
+          ) : null}
+          {isDone ? (
+            <Link href="/transactions" className={primaryButtonClassName}>
+              查看交易
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       {isFailed ? (
@@ -385,7 +398,7 @@ function ImportProgress({ status }: { status: ImportStatus }) {
             <div className="space-y-4 rounded-[24px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.03)] p-4">
               <ProgressBar
                 label="整体进度"
-                tone={isDone ? "healthy" : "gold"}
+                tone={isDone ? "healthy" : isReviewingDuplicates ? "warning" : "gold"}
                 value={progress}
                 valueLabel={`${progress.toFixed(0)}%`}
               />
@@ -467,14 +480,17 @@ function calculateProgress(status: ImportStatus) {
   if (status.status === "processing") {
     return totalRows > 0 ? Math.max(12, Math.min(28, (status.processed_rows / totalRows) * 25)) : 18;
   }
+  if (status.status === "reviewing_duplicates") {
+    return 46;
+  }
   if (status.status === "classifying") {
     if (totalRows > 0) {
-      return Math.max(30, Math.min(92, 30 + (status.processed_rows / totalRows) * 58));
+      return Math.max(52, Math.min(92, 52 + (status.processed_rows / totalRows) * 40));
     }
     if (status.llm_total_batches > 0) {
-      return Math.max(30, Math.min(92, 30 + (status.llm_completed_batches / status.llm_total_batches) * 58));
+      return Math.max(52, Math.min(92, 52 + (status.llm_completed_batches / status.llm_total_batches) * 40));
     }
-    return 42;
+    return 60;
   }
   return 0;
 }
