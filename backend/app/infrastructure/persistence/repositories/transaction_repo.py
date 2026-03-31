@@ -610,8 +610,7 @@ def save_beancount_entry(
 def delete_import(db: Session, import_id: str, user_id: str) -> dict:
     """
     Cascade-delete an import and all associated data.
-    Returns {'deleted_transactions': N, 'affected_months': [...]}
-    Raises ValueError if import not found or belongs to another user.
+    Returns {'deleted_transactions': N, 'affected_months': [...]}.
     """
     from app.infrastructure.persistence.models.orm_models import MonthlyReportORM
 
@@ -634,10 +633,8 @@ def delete_import(db: Session, import_id: str, user_id: str) -> dict:
         )
     ).all()
 
-    affected_months: set[str] = set()
+    affected_months: set[str] = {tx.transaction_at.strftime("%Y-%m") for tx in txs}
     tx_ids = [tx.id for tx in txs]
-    for tx in txs:
-        affected_months.add(tx.transaction_at.strftime("%Y-%m"))
 
     if tx_ids:
         entries = db.scalars(
@@ -646,8 +643,27 @@ def delete_import(db: Session, import_id: str, user_id: str) -> dict:
         for entry in entries:
             db.delete(entry)
 
+    groups = db.scalars(
+        select(DuplicateReviewGroupORM).where(
+            DuplicateReviewGroupORM.import_id == import_id,
+            DuplicateReviewGroupORM.user_id == user_id,
+        )
+    ).all()
+
     for tx in txs:
+        tx.duplicate_review_group_id = None
         db.delete(tx)
+
+    for group in groups:
+        db.delete(group)
+
+    summary = db.scalar(select(ImportSummaryORM).where(ImportSummaryORM.import_id == import_id))
+    if summary:
+        db.delete(summary)
+
+    stages = db.scalars(select(ImportStageORM).where(ImportStageORM.import_id == import_id)).all()
+    for stage in stages:
+        db.delete(stage)
 
     for ym in affected_months:
         cached_report = db.scalar(
