@@ -47,7 +47,10 @@ Plans:
   2. Adding a new skill directory does not require changing the loader implementation to make it discoverable
   3. Missing or malformed skills fail with a clear loader error that identifies the skill name and the missing file or schema
   4. A loaded skill can be invoked by application code using its declared schema instead of custom parsing logic
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 02-01-PLAN.md — TDD red phase: test scaffold, exception types, loader stub (Wave 0)
+- [ ] 02-02-PLAN.md — Implementation: full load_skill(), SkillRunner, SkillResult (Wave 1)
 
 ### Phase 3: Skill Result Contract
 **Goal**: All skill executions return the same result envelope so downstream workflows can consume skills consistently
