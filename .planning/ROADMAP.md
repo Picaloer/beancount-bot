@@ -33,7 +33,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Each skill directory contains a `SKILL.md` file describing the skill and at least one schema file defining its input or output shape
   3. A developer can add a new skill by creating a new subdirectory under `backend/skills/` without modifying existing feature code
   4. No existing import, classification, or report logic is required to know skill prompt text directly
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 01-01-PLAN.md — TDD test scaffold: create failing tests for SKILL-01 structural assertions (Wave 0)
+- [ ] 01-02-PLAN.md — Implementation: create backend/skills/ directory with README.md and cross-channel-dedup skill skeleton (Wave 1)
 
 ### Phase 2: Skill Loader
 **Goal**: The system can dynamically load a named skill from disk and prepare it for execution without per-skill code branches
