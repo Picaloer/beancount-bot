@@ -93,21 +93,21 @@ Acknowledged but deferred to future milestones.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SKILL-01 | Phase 1 | Pending |
-| SKILL-02 | Phase 1 | Pending |
-| SKILL-03 | Phase 1 | Pending |
-| DEDUP-01 | Phase 2 | Pending |
-| DEDUP-02 | Phase 2 | Pending |
-| DEDUP-03 | Phase 2 | Pending |
-| DEDUP-04 | Phase 3 | Pending |
-| DEDUP-05 | Phase 2 | Pending |
-| TRNF-01 | Phase 4 | Pending |
-| TRNF-02 | Phase 4 | Pending |
-| TRNF-03 | Phase 4 | Pending |
-| TRNF-04 | Phase 4 | Pending |
-| TRNF-05 | Phase 4 | Pending |
-| DISP-01 | Phase 5 | Pending |
-| DISP-02 | Phase 5 | Pending |
-| DISP-03 | Phase 5 | Pending |
+| SKILL-02 | Phase 2 | Pending |
+| SKILL-03 | Phase 3 | Pending |
+| DEDUP-01 | Phase 4 | Pending |
+| DEDUP-02 | Phase 4 | Pending |
+| DEDUP-03 | Phase 4 | Pending |
+| DEDUP-05 | Phase 5 | Pending |
+| DEDUP-04 | Phase 6 | Pending |
+| TRNF-01 | Phase 7 | Pending |
+| TRNF-02 | Phase 7 | Pending |
+| TRNF-03 | Phase 7 | Pending |
+| TRNF-04 | Phase 8 | Pending |
+| TRNF-05 | Phase 8 | Pending |
+| DISP-01 | Phase 9 | Pending |
+| DISP-02 | Phase 9 | Pending |
+| DISP-03 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 16 total
@@ -116,4 +116,4 @@ Acknowledged but deferred to future milestones.
 
 ---
 *Requirements defined: 2026-04-13*
-*Last updated: 2026-04-13 after initial definition*
+*Last updated: 2026-04-13 after roadmap creation (traceability updated to 9-phase structure)*
